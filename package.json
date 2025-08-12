@@ -1,8 +1,9 @@
 {
-  "dependencies": {
-    "body-parser": "^2.2.0",
-    "dotenv": "^17.2.1",
-    "express": "^5.1.0",
-    "node-fetch": "^3.3.2"
-  }
+	"name": "flow-to-cin7-core",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vercel dev --listen 0.0.0.0:3000",
+		"start": "vercel dev"
+	}
 }
