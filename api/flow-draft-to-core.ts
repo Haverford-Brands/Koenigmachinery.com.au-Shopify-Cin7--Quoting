@@ -1,3 +1,6 @@
+// api\flow-draft-to-core.ts
+// This API endpoint converts a Shopify Draft Order to a Core Sale
+// https://api.cin7.com/api
 export const config = { runtime: "edge" } as const;
 
 type AnyObj = Record<string, any>;
@@ -22,6 +25,11 @@ function fmtDateYYYYMMDD(iso?: string): string | undefined {
 function round(n: number, dp = 2) {
 	const f = Math.pow(10, dp);
 	return Math.round((n + Number.EPSILON) * f) / f;
+}
+
+function num(value: any): number | undefined {
+	const n = Number(value);
+	return isNaN(n) ? undefined : n;
 }
 
 function mapDraftToCoreSale(draft: AnyObj): AnyObj {
@@ -50,8 +58,8 @@ function mapDraftToCoreSale(draft: AnyObj): AnyObj {
 		customerName;
 
 	const lines = (draft?.line_items || []).map((li: AnyObj, idx: number) => {
-		const qty = Number(li?.quantity || 0);
-		const price = Number(li?.price || 0);
+		const qty = num(li?.quantity) ?? 0;
+		const price = num(li?.price) ?? 0;
 		const baseTotal = round(price * qty, 2);
 		const tax =
 			typeof taxRate === "number" ? round(baseTotal * taxRate, 2) : undefined;
@@ -59,7 +67,7 @@ function mapDraftToCoreSale(draft: AnyObj): AnyObj {
 			SKU: li?.sku || li?.variant_id?.toString?.() || `LINE-${idx + 1}`,
 			Quantity: qty,
 			Price: price,
-			Tax: tax, // omitted if taxRate undefined
+			...(tax !== undefined ? { Tax: tax } : {}),
 			Total: baseTotal, // API accepts Total per sample
 			TaxRule: taxRule,
 			DropShip: false,
@@ -67,6 +75,8 @@ function mapDraftToCoreSale(draft: AnyObj): AnyObj {
 			Comment: li?.title || undefined,
 		};
 	});
+
+	const currencyRate = num(env("CORE_CURRENCY_RATE"));
 
 	const payload: AnyObj = {
 		Customer: customerName,
@@ -125,7 +135,7 @@ function mapDraftToCoreSale(draft: AnyObj): AnyObj {
 
 async function postCoreSale(payload: AnyObj) {
 	const base = (
-		process.env.CORE_BASE_URL || "https://inventory.dearsystems.com/externalapi"
+		process.env.CORE_BASE_URL || "https://api.cin7.com/api"
 	).replace(/\/$/, "");
 	const acct = process.env.CORE_ACCOUNT_ID;
 	const key = process.env.CORE_APP_KEY;
