@@ -1,3 +1,6 @@
+// api\flow-draft-to-core.ts
+// This API endpoint converts a Shopify Draft Order to a Core Sale
+// https://api.cin7.com/api
 export const config = { runtime: "edge" } as const;
 
 type AnyObj = Record<string, any>;
@@ -27,6 +30,11 @@ function round(n: number, dp = 2) {
 function num(value: any): number | undefined {
         const n = Number(value);
         return isNaN(n) ? undefined : n;
+}
+
+function num(value: any): number | undefined {
+	const n = Number(value);
+	return isNaN(n) ? undefined : n;
 }
 
 function mapDraftToCoreSale(draft: AnyObj): AnyObj {
@@ -128,7 +136,7 @@ function mapDraftToCoreSale(draft: AnyObj): AnyObj {
 
 async function postCoreSale(payload: AnyObj) {
 	const base = (
-		process.env.CORE_BASE_URL || "https://inventory.dearsystems.com/externalapi"
+		process.env.CORE_BASE_URL || "https://api.cin7.com/api"
 	).replace(/\/$/, "");
 	const acct = process.env.CORE_ACCOUNT_ID;
 	const key = process.env.CORE_APP_KEY;
