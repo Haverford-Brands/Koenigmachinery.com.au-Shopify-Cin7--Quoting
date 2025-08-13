@@ -23,8 +23,13 @@ function fmtDateYYYYMMDD(iso?: string): string | undefined {
 }
 
 function round(n: number, dp = 2) {
-	const f = Math.pow(10, dp);
-	return Math.round((n + Number.EPSILON) * f) / f;
+        const f = Math.pow(10, dp);
+        return Math.round((n + Number.EPSILON) * f) / f;
+}
+
+function num(value: any): number | undefined {
+        const n = Number(value);
+        return isNaN(n) ? undefined : n;
 }
 
 function num(value: any): number | undefined {
@@ -33,15 +38,13 @@ function num(value: any): number | undefined {
 }
 
 function mapDraftToCoreSale(draft: AnyObj): AnyObj {
-	const env = (k: string, def?: any) =>
-		typeof process.env[k] === "string" && process.env[k]!.length
-			? process.env[k]
+        const env = (k: string, def?: any) =>
+                typeof process.env[k] === "string" && process.env[k]!.length
+                        ? process.env[k]
 			: def;
 
-	const taxRule = env("CORE_TAX_RULE", "Tax on Sales");
-	const taxRate = process.env.CORE_TAX_RATE
-		? Number(process.env.CORE_TAX_RATE)
-		: undefined; // e.g. 0.10
+        const taxRule = env("CORE_TAX_RULE", "Tax on Sales");
+        const taxRate = num(process.env.CORE_TAX_RATE); // e.g. 0.10
 	const orderDate =
 		fmtDateYYYYMMDD(draft?.created_at) ||
 		fmtDateYYYYMMDD(new Date().toISOString());
@@ -57,26 +60,26 @@ function mapDraftToCoreSale(draft: AnyObj): AnyObj {
 		[ship?.first_name, ship?.last_name].filter(Boolean).join(" ") ||
 		customerName;
 
-	const lines = (draft?.line_items || []).map((li: AnyObj, idx: number) => {
-		const qty = num(li?.quantity) ?? 0;
-		const price = num(li?.price) ?? 0;
-		const baseTotal = round(price * qty, 2);
-		const tax =
-			typeof taxRate === "number" ? round(baseTotal * taxRate, 2) : undefined;
-		return {
-			SKU: li?.sku || li?.variant_id?.toString?.() || `LINE-${idx + 1}`,
-			Quantity: qty,
-			Price: price,
-			...(tax !== undefined ? { Tax: tax } : {}),
-			Total: baseTotal, // API accepts Total per sample
-			TaxRule: taxRule,
-			DropShip: false,
-			Discount: 0,
-			Comment: li?.title || undefined,
-		};
-	});
+        const lines = (draft?.line_items || []).map((li: AnyObj, idx: number) => {
+                const qty = num(li?.quantity) ?? 0;
+                const price = num(li?.price) ?? 0;
+                const baseTotal = round(price * qty, 2);
+                const tax =
+                        typeof taxRate === "number" ? round(baseTotal * taxRate, 2) : undefined;
+                return {
+                        SKU: li?.sku || li?.variant_id?.toString?.() || `LINE-${idx + 1}`,
+                        Quantity: qty,
+                        Price: price,
+                        ...(tax !== undefined ? { Tax: tax } : {}),
+                        Total: baseTotal, // API accepts Total per sample
+                        TaxRule: taxRule,
+                        DropShip: false,
+                        Discount: 0,
+                        Comment: li?.title || undefined,
+                };
+        });
 
-	const currencyRate = num(env("CORE_CURRENCY_RATE"));
+        const currencyRate = num(env("CORE_CURRENCY_RATE"));
 
 	const payload: AnyObj = {
 		Customer: customerName,
@@ -112,13 +115,11 @@ function mapDraftToCoreSale(draft: AnyObj): AnyObj {
 			: { OrderStatus: false, InvoiceStatus: "NOTAUTHORISED" }),
 		AutoPickPackShipMode: env("CORE_AUTOPPS_MODE"),
 		SalesRepresentative: env("CORE_SALES_REP"),
-		InvoiceDate: orderDate,
-		InvoiceDueDate: orderDate,
-		CurrencyRate: env("CORE_CURRENCY_RATE")
-			? Number(env("CORE_CURRENCY_RATE"))
-			: undefined,
-		OrderMemo: env("CORE_ORDER_MEMO"),
-		InvoiceMemo: env("CORE_INVOICE_MEMO"),
+                InvoiceDate: orderDate,
+                InvoiceDueDate: orderDate,
+                ...(currencyRate !== undefined ? { CurrencyRate: currencyRate } : {}),
+                OrderMemo: env("CORE_ORDER_MEMO"),
+                InvoiceMemo: env("CORE_INVOICE_MEMO"),
 		Payments: [],
 		Lines: lines,
 		AdditionalAttributes: undefined,
