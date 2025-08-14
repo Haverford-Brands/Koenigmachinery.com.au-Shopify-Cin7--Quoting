@@ -1,0 +1,16 @@
+{
+  "functions": {
+    "api/webhooks/shopify/draft_orders/create.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 10
+    },
+    "api/healthz.js": {
+      "runtime": "nodejs20.x",
+      "maxDuration": 5
+    }
+  },
+  "routes": [
+    { "src": "/webhooks/shopify/draft_orders/create", "dest": "api/webhooks/shopify/draft_orders/create.js" },
+    { "src": "/healthz", "dest": "api/healthz.js" }
+  ]
+}
