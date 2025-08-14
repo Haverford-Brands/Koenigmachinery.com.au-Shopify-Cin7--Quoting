@@ -225,12 +225,12 @@ export async function POST(req: Request) {
 
 /* Optional: simple GET for health check */
 export async function GET() {
-	return json(200, {
-		ok: true,
-		route: "/app/api/flow-draft-to-omni",
-		requiresSecret: Boolean(env("FLOW_SHARED_SECRET")),
-		hasOmniCreds: Boolean(
-			env("OMNI_USERNAME") && (env("OMNI_API_KEY") || env("OMNI_PASSWORD"))
-		),
-	});
+        return json(200, {
+                ok: true,
+                route: "/api/flow-draft-to-omni",
+                requiresSecret: Boolean(env("FLOW_SHARED_SECRET")),
+                hasOmniCreds: Boolean(
+                        env("OMNI_USERNAME") && (env("OMNI_API_KEY") || env("OMNI_PASSWORD"))
+                ),
+        });
 }
