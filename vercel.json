@@ -9,3 +9,4 @@
 		{ "source": "/healthz", "destination": "/api/healthz" }
 	]
 }
+
