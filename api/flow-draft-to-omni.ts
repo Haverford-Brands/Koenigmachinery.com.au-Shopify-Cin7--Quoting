@@ -1,10 +1,10 @@
-// app/api/flow-draft-to-omni/route.ts
-// Next.js App Router API – Shopify Draft/Order ➜ Cin7 Omni Sales Order
+// api/flow-draft-to-omni.ts
+// Next.js API Route – Shopify Draft/Order ➜ Cin7 Omni Sales Order
 // Base: https://api.cin7.com/api  •  Endpoint: POST /v1/SalesOrders
 // Auth: HTTP Basic (username = Omni API username, password = API key)
 // Edge runtime for fast cold starts
 
-export const runtime = "edge";
+export const config = { runtime: "edge" } as const;
 
 type AnyObj = Record<string, any>;
 
@@ -190,7 +190,7 @@ async function postOmniSalesOrders(list: AnyObj[]) {
 	return { status: res.status, body };
 }
 
-export async function POST(req: Request) {
+async function POST(req: Request) {
 	const wantSecret = env("FLOW_SHARED_SECRET");
 	if (wantSecret) {
 		const got = req.headers.get("X-Flow-Secret") || "";
@@ -224,13 +224,19 @@ export async function POST(req: Request) {
 }
 
 /* Optional: simple GET for health check */
-export async function GET() {
-	return json(200, {
-		ok: true,
-		route: "/app/api/flow-draft-to-omni",
-		requiresSecret: Boolean(env("FLOW_SHARED_SECRET")),
-		hasOmniCreds: Boolean(
-			env("OMNI_USERNAME") && (env("OMNI_API_KEY") || env("OMNI_PASSWORD"))
-		),
-	});
+async function GET() {
+        return json(200, {
+                ok: true,
+                route: "/api/flow-draft-to-omni",
+                requiresSecret: Boolean(env("FLOW_SHARED_SECRET")),
+                hasOmniCreds: Boolean(
+                        env("OMNI_USERNAME") && (env("OMNI_API_KEY") || env("OMNI_PASSWORD"))
+                ),
+        });
+}
+
+export default async function handler(req: Request) {
+        if (req.method === "POST") return POST(req);
+        if (req.method === "GET") return GET();
+        return json(405, { error: "Method Not Allowed" });
 }
