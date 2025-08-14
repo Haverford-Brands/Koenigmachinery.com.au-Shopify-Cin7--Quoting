@@ -11,11 +11,12 @@ const {
 	CIN7_BASE_URL = "https://api.cin7.com/api",
 	CIN7_USERNAME,
 	CIN7_API_KEY,
-	CIN7_BRANCH_ID,
-	CIN7_DEFAULT_CURRENCY = "USD",
-	LOG_SHOPIFY_SUMMARY = "0",
-	DEBUG_DRY_RUN = "0",
-	PORT = 3000,
+        CIN7_BRANCH_ID,
+        CIN7_DEFAULT_CURRENCY = "USD",
+        LOG_SHOPIFY_SUMMARY = "0",
+        LOG_SHOPIFY_DRAFT = "0",
+        DEBUG_DRY_RUN = "0",
+        PORT = 3000,
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) throw new Error("Missing SHOPIFY_APP_SECRET");
@@ -153,14 +154,23 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 			JSON.parse(req.body.toString("utf8")).draft_order ||
 			JSON.parse(req.body.toString("utf8"));
 
-		if (LOG_SHOPIFY_SUMMARY === "1") {
-			console.log(
-				JSON.stringify({
-					tag: "shopify.draft.summary",
-					draft: summarizeDraft(draft),
-				})
-			);
-		}
+                if (LOG_SHOPIFY_SUMMARY === "1") {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "shopify.draft.summary",
+                                        draft: summarizeDraft(draft),
+                                })
+                        );
+                }
+
+                if (LOG_SHOPIFY_DRAFT === "1") {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "shopify.draft.full",
+                                        draft,
+                                })
+                        );
+                }
 
 		const quote = mapDraftOrderToCin7Quote(draft);
 

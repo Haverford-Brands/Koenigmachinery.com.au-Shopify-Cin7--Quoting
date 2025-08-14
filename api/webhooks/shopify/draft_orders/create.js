@@ -7,12 +7,13 @@ const {
 	CIN7_BASE_URL = "https://api.cin7.com/api",
 	CIN7_USERNAME,
 	CIN7_API_KEY,
-	CIN7_BRANCH_ID,
-	CIN7_DEFAULT_CURRENCY = "USD",
-	LOG_SHOPIFY_SUMMARY = "0",
-	DEBUG_DRY_RUN = "0",
-	LOG_SHOPIFY_RAW = "0",
-	DEBUG_TOKEN,
+        CIN7_BRANCH_ID,
+        CIN7_DEFAULT_CURRENCY = "USD",
+        LOG_SHOPIFY_SUMMARY = "0",
+        LOG_SHOPIFY_DRAFT = "0",
+        DEBUG_DRY_RUN = "0",
+        LOG_SHOPIFY_RAW = "0",
+        DEBUG_TOKEN,
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) console.error("Missing SHOPIFY_APP_SECRET");
@@ -180,18 +181,31 @@ export default async function handler(req, res) {
 	if (LOG_SHOPIFY_RAW === "1") capture.raw = rawBody.toString("utf8");
 	recordEvent(capture);
 
-	if (LOG_SHOPIFY_SUMMARY === "1") {
-		console.log(
-			JSON.stringify({
-				tag: "shopify.draft.summary",
-				reqId,
-				shop,
-				topic,
-				triggeredAt,
-				draft: summarizeDraft(draft),
-			})
-		);
-	}
+        if (LOG_SHOPIFY_SUMMARY === "1") {
+                console.log(
+                        JSON.stringify({
+                                tag: "shopify.draft.summary",
+                                reqId,
+                                shop,
+                                topic,
+                                triggeredAt,
+                                draft: summarizeDraft(draft),
+                        })
+                );
+        }
+
+        if (LOG_SHOPIFY_DRAFT === "1") {
+                console.log(
+                        JSON.stringify({
+                                tag: "shopify.draft.full",
+                                reqId,
+                                shop,
+                                topic,
+                                triggeredAt,
+                                draft,
+                        })
+                );
+        }
 
 	try {
 		const quote = mapDraftOrderToCin7Quote(draft);

@@ -62,6 +62,7 @@ const {
   CIN7_BRANCH_ID,
   CIN7_DEFAULT_CURRENCY = 'USD',
   LOG_SHOPIFY_SUMMARY = '0',
+  LOG_SHOPIFY_DRAFT = '0',
   DEBUG_DRY_RUN = '0',
   LOG_SHOPIFY_RAW = '0',
   WEBHOOK_DUMP_DIR = '.webhook_dumps',
@@ -218,6 +219,7 @@ app.post('/webhooks/shopify/draft_orders/create', rawJson, async (req, res) => {
     if (LOG_SHOPIFY_RAW === '1') dumpToFile(capture);
 
     if (LOG_SHOPIFY_SUMMARY === '1') console.log(JSON.stringify({ tag: 'shopify.draft.summary', draft: summarizeDraft(draft) }));
+    if (LOG_SHOPIFY_DRAFT === '1') console.log(JSON.stringify({ tag: 'shopify.draft.full', draft }));
 
     const quote = mapDraftOrderToCin7Quote(draft);
 
