@@ -1,6 +1,10 @@
-// api\flow-draft-to-core.ts
-// This API endpoint converts a Shopify Draft Order to a Core Sale
-// https://api.cin7.com/api
+// api/flow-draft-to-omni.ts
+// Convert a Shopify Draft Order/Order JSON to a Cin7 Omni Sales Order (v1)
+// Omni base: https://api.cin7.com/api ; Endpoint: POST v1/SalesOrders
+// Auth: HTTP Basic (username = Omni API Username, password = API Key)
+// Rate limits: 3/sec, 60/min, 5000/day
+// Dates: UTC "yyyy-MM-ddTHH:mm:ssZ" (no milliseconds)
+
 export const config = { runtime: "edge" } as const;
 
 type AnyObj = Record<string, any>;
@@ -12,151 +16,180 @@ function json(status: number, data: unknown) {
 	});
 }
 
-function fmtDateYYYYMMDD(iso?: string): string | undefined {
+function toOmniUtc(iso?: string): string | undefined {
 	if (!iso) return undefined;
 	const d = new Date(iso);
 	if (isNaN(d.getTime())) return undefined;
-	const y = d.getUTCFullYear();
-	const m = String(d.getUTCMonth() + 1).padStart(2, "0");
-	const day = String(d.getUTCDate()).padStart(2, "0");
-	return `${y}/${m}/${day}`;
+	// Trim milliseconds to match Omni sample format
+	return d.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function round(n: number, dp = 2) {
-	const f = Math.pow(10, dp);
-	return Math.round((n + Number.EPSILON) * f) / f;
+function round(n: unknown, dp = 4): number {
+	const x = Number(n);
+	if (!Number.isFinite(x)) return 0;
+	const f = 10 ** dp;
+	return Math.round((x + Number.EPSILON) * f) / f;
 }
 
-function num(value: any): number | undefined {
-	const n = Number(value);
-	return isNaN(n) ? undefined : n;
+function safeStr(v: unknown): string | undefined {
+	if (v == null) return undefined;
+	const s = String(v).trim();
+	return s ? s : undefined;
 }
 
-function mapDraftToCoreSale(draft: AnyObj): AnyObj {
-	const env = (k: string, def?: any) =>
-		typeof process.env[k] === "string" && process.env[k]!.length
-			? process.env[k]
-			: def;
+function env(k: string, def?: any) {
+	return typeof process.env[k] === "string" && process.env[k]!.length
+		? process.env[k]
+		: def;
+}
 
-	const taxRule = env("CORE_TAX_RULE", "Tax on Sales");
-	const taxRate = process.env.CORE_TAX_RATE
-		? Number(process.env.CORE_TAX_RATE)
-		: undefined; // e.g. 0.10
-	const orderDate =
-		fmtDateYYYYMMDD(draft?.created_at) ||
-		fmtDateYYYYMMDD(new Date().toISOString());
-
-	const ship = draft?.shipping_address || {};
+// --- Mapping ---
+function mapShopifyDraftToOmniSO(draft: AnyObj): AnyObj {
 	const bill = draft?.billing_address || {};
+	const ship = draft?.shipping_address || {};
+	const email = draft?.email || draft?.customer?.email || undefined;
 
-	const customerName =
-		[bill?.first_name, bill?.last_name].filter(Boolean).join(" ") ||
-		draft?.email ||
-		"Draft Customer";
-	const contact =
-		[ship?.first_name, ship?.last_name].filter(Boolean).join(" ") ||
-		customerName;
+	const firstName = bill?.first_name || ship?.first_name || undefined;
+	const lastName = bill?.last_name || ship?.last_name || undefined;
+	const company = bill?.company || ship?.company || undefined;
+
+	const created =
+		toOmniUtc(draft?.created_at) || toOmniUtc(new Date().toISOString());
+	const taxesIncluded = Boolean(draft?.taxes_included);
+
+	// Omni wants tax rate as percent (0..100). Prefer env, else try Shopify line tax_lines sum.
+	let taxRatePct: number | undefined;
+	if (process.env.OMNI_TAX_RATE) {
+		const r = Number(process.env.OMNI_TAX_RATE); // decimal or percent accepted
+		taxRatePct = r > 1 ? r : round(r * 100, 4);
+	} else if (Array.isArray(draft?.line_items)) {
+		const rates = draft.line_items.map((li: AnyObj) => {
+			if (!Array.isArray(li?.tax_lines) || li.tax_lines.length === 0) return 0;
+			const sum = li.tax_lines.reduce(
+				(acc: number, t: AnyObj) => acc + Number(t?.rate || 0),
+				0
+			);
+			return sum; // Shopify rate is decimal (e.g., 0.15)
+		});
+		const max = Math.max(0, ...rates);
+		taxRatePct = round(max * 100, 4);
+	}
 
 	const lines = (draft?.line_items || []).map((li: AnyObj, idx: number) => {
-		const qty = num(li?.quantity) ?? 0;
-		const price = num(li?.price) ?? 0;
-		const baseTotal = round(price * qty, 2);
-		const tax =
-			typeof taxRate === "number" ? round(baseTotal * taxRate, 2) : undefined;
+		const code =
+			safeStr(li?.sku) || safeStr(li?.variant_id) || `LINE-${idx + 1}`;
 		return {
-			SKU: li?.sku || li?.variant_id?.toString?.() || `LINE-${idx + 1}`,
-			Quantity: qty,
-			Price: price,
-			...(tax !== undefined ? { Tax: tax } : {}),
-			Total: baseTotal, // API accepts Total per sample
-			TaxRule: taxRule,
-			DropShip: false,
-			Discount: 0,
-			Comment: li?.title || undefined,
+			// Minimal fields Omni accepts on insert
+			code, // product option code (SKU)
+			name: safeStr(li?.title),
+			qty: round(li?.quantity, 4),
+			unitPrice: round(li?.price, 4),
+			barcode: safeStr(li?.barcode),
+			styleCode: safeStr(li?.product_id), // fallback identifier
+			sort: (idx + 1) * 10,
+			// discount: 0, // uncomment if you want explicit per-line discount
 		};
 	});
 
-	const currencyRate = num(env("CORE_CURRENCY_RATE"));
+	const so: AnyObj = {
+		// Linking to a CRM member if present
+		MemberEmail: email,
+		// Contact on the order (display)
+		FirstName: firstName,
+		LastName: lastName,
+		Company: company,
+		Email: email,
+		Phone: draft?.phone || draft?.customer?.phone || undefined,
 
-	const payload: AnyObj = {
-		Customer: customerName,
-		Contact: contact,
-		Phone: draft?.phone || draft?.customer?.phone || "",
-		OrderDate: orderDate,
-		SaleAccount: env("CORE_SALE_ACCOUNT"),
-		BillingAddress: {
-			Line1: bill?.address1 || "",
-			Line2: bill?.address2 || "",
-			City: bill?.city || "",
-			State: bill?.province || "",
-			Postcode: bill?.zip || "",
-			Country: bill?.country_code || bill?.country || "",
-		},
-		ShippingAddress: {
-			Line1: ship?.address1 || "",
-			Line2: ship?.address2 || "",
-			City: ship?.city || "",
-			State: ship?.province || "",
-			Postcode: ship?.zip || "",
-			Country: ship?.country_code || ship?.country || "",
-		},
-		TaxRule: taxRule,
-		TaxInclusive: Boolean(draft?.taxes_included),
-		Terms: env("CORE_TERMS"),
-		PriceTier: env("CORE_PRICE_TIER"),
-		Location: env("CORE_LOCATION"),
-		Note: env("CORE_NOTE"),
-		CustomerReference: draft?.name || draft?.id?.toString?.(),
-		...(env("CORE_ORDERSTATUS_MODE", "BOOLEAN_FALSE") === "NOTAUTHORISED"
-			? { OrderStatus: "NOTAUTHORISED", InvoiceStatus: "NOTAUTHORISED" }
-			: { OrderStatus: false, InvoiceStatus: "NOTAUTHORISED" }),
-		AutoPickPackShipMode: env("CORE_AUTOPPS_MODE"),
-		SalesRepresentative: env("CORE_SALES_REP"),
-		InvoiceDate: orderDate,
-		InvoiceDueDate: orderDate,
-		CurrencyRate: env("CORE_CURRENCY_RATE")
-			? Number(env("CORE_CURRENCY_RATE"))
+		// Addresses (Delivery & Billing)
+		DeliveryFirstName: ship?.first_name || undefined,
+		DeliveryLastName: ship?.last_name || undefined,
+		DeliveryCompany: ship?.company || undefined,
+		DeliveryAddress1: ship?.address1 || undefined,
+		DeliveryAddress2: ship?.address2 || undefined,
+		DeliveryCity: ship?.city || undefined,
+		DeliveryState: ship?.province || undefined,
+		DeliveryPostalCode: ship?.zip || undefined,
+		DeliveryCountry: ship?.country || ship?.country_code || undefined,
+
+		BillingFirstName: bill?.first_name || undefined,
+		BillingLastName: bill?.last_name || undefined,
+		BillingCompany: bill?.company || undefined,
+		BillingAddress1: bill?.address1 || undefined,
+		BillingAddress2: bill?.address2 || undefined,
+		BillingCity: bill?.city || undefined,
+		BillingState: bill?.province || undefined,
+		BillingPostalCode: bill?.zip || undefined,
+		BillingCountry: bill?.country || bill?.country_code || undefined,
+
+		// Order meta
+		Reference: draft?.name || draft?.id?.toString?.(), // unique order ref; let Omni auto-gen if omitted
+		CustomerOrderNo: draft?.name || undefined,
+		CreatedDate: created,
+		InvoiceDate: created,
+		Stage: env("OMNI_STAGE", "New"),
+		IsApproved: env("OMNI_IS_APPROVED", "true") !== "false",
+		BranchId: env("OMNI_BRANCH_ID") ? Number(env("OMNI_BRANCH_ID")) : undefined,
+		PaymentTerms: env("OMNI_PAYMENT_TERMS"),
+
+		// Tax
+		TaxStatus: taxesIncluded ? "Incl" : "Excl",
+		TaxRate: typeof taxRatePct === "number" ? taxRatePct : undefined,
+
+		// Currency (optional)
+		CurrencyCode: env("OMNI_CURRENCY_CODE"),
+		CurrencyRate: env("OMNI_CURRENCY_RATE")
+			? Number(env("OMNI_CURRENCY_RATE"))
 			: undefined,
-		OrderMemo: env("CORE_ORDER_MEMO"),
-		InvoiceMemo: env("CORE_INVOICE_MEMO"),
-		Payments: [],
-		Lines: lines,
-		AdditionalAttributes: undefined,
+
+		// Lines
+		LineItems: lines,
 	};
 
-	Object.keys(payload).forEach(
-		(k) => (payload[k] == null || payload[k] === "") && delete payload[k]
+	// Remove empty/undefined
+	Object.keys(so).forEach(
+		(k) => (so as any)[k] == null && delete (so as any)[k]
 	);
-	if (Array.isArray(payload.Lines) && payload.Lines.length === 0)
-		delete payload.Lines;
-
-	return payload;
+	return so;
 }
 
-async function postCoreSale(payload: AnyObj) {
+function toBasicAuth(username?: string, password?: string): string | undefined {
+	if (!username || !password) return undefined;
+	const raw = `${username}:${password}`;
+	// Edge-safe base64
+	// @ts-ignore - btoa exists in edge runtime
+	if (typeof btoa === "function") return `Basic ${btoa(raw)}`;
+	// Fallback (Node):
+	// @ts-ignore
+	if (typeof Buffer !== "undefined")
+		return `Basic ${Buffer.from(raw).toString("base64")}`;
+	return undefined;
+}
+
+async function postOmniSalesOrders(list: AnyObj[]) {
 	const base = (
-		process.env.CORE_BASE_URL || "https://api.cin7.com/api"
+		env("OMNI_BASE_URL", "https://api.cin7.com/api") as string
 	).replace(/\/$/, "");
-	const acct = process.env.CORE_ACCOUNT_ID;
-	const key = process.env.CORE_APP_KEY;
-	if (!acct || !key)
+	const username = env("OMNI_USERNAME");
+	const apiKey = env("OMNI_API_KEY") || env("OMNI_PASSWORD");
+	const auth = toBasicAuth(username, apiKey);
+	if (!auth)
 		return {
 			status: 500,
-			body: { error: "Missing CORE_ACCOUNT_ID or CORE_APP_KEY" },
+			body: { error: "Missing OMNI_USERNAME or OMNI_API_KEY" },
 		};
 
-	const url = `${base}/Sale`;
+	const loadboms = env("OMNI_LOAD_BOMS", "false");
+	const url = `${base}/v1/SalesOrders?loadboms=${encodeURIComponent(loadboms)}`;
 	const res = await fetch(url, {
 		method: "POST",
 		headers: {
-			"api-auth-accountid": acct,
-			"api-auth-applicationkey": key,
+			Authorization: auth,
 			"Content-Type": "application/json",
 			Accept: "application/json",
 		},
-		body: JSON.stringify(payload),
+		body: JSON.stringify(list),
 	});
-
 	const text = await res.text();
 	let body: unknown = text;
 	try {
@@ -168,7 +201,8 @@ async function postCoreSale(payload: AnyObj) {
 export default async function handler(req: Request) {
 	if (req.method !== "POST") return json(405, { error: "Method Not Allowed" });
 
-	const wantSecret = process.env.FLOW_SHARED_SECRET;
+	// Optional shared secret (e.g., from Shopify Flow or internal callers)
+	const wantSecret = env("FLOW_SHARED_SECRET");
 	if (wantSecret) {
 		const got = req.headers.get("X-Flow-Secret") || "";
 		if (got !== wantSecret) return json(401, { error: "Unauthorized" });
@@ -183,23 +217,23 @@ export default async function handler(req: Request) {
 
 	if (!draft || !Array.isArray(draft?.line_items)) {
 		return json(400, {
-			error: "Body does not look like a Shopify Draft Order JSON",
+			error: "Body does not look like a Shopify Draft/Order JSON",
 		});
 	}
 
 	try {
-		const salePayload = mapDraftToCoreSale(draft);
-		const core = await postCoreSale(salePayload);
+		const so = mapShopifyDraftToOmniSO(draft);
+		const { status, body } = await postOmniSalesOrders([so]);
 
-		if (core.status >= 200 && core.status < 300)
-			return json(200, { ok: true, core });
-		if ([429, 500, 502, 503, 504].includes(core.status))
-			return json(core.status, { error: "Core temporary error", core });
-		return json(400, {
-			error: "Core rejected request",
-			core,
-			sent: salePayload,
-		});
+		if (status >= 200 && status < 300)
+			return json(200, { ok: true, omni: body });
+		if ([429, 500, 502, 503, 504].includes(status))
+			return json(status, {
+				error: "Omni temporary error",
+				omni: body,
+				sent: so,
+			});
+		return json(400, { error: "Omni rejected request", omni: body, sent: so });
 	} catch (e: any) {
 		return json(500, { error: e?.message || String(e) });
 	}
