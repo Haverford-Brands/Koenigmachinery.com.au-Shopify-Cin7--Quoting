@@ -163,14 +163,12 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                         );
                 }
 
-                if (LOG_SHOPIFY_DRAFT === "1") {
-                        console.log(
-                                JSON.stringify({
-                                        tag: "shopify.draft.full",
-                                        draft,
-                                })
-                        );
-                }
+                console.log(
+									JSON.stringify({
+										tag: "shopify.draft.full",
+										draft,
+									})
+								);
 
 		const quote = mapDraftOrderToCin7Quote(draft);
 

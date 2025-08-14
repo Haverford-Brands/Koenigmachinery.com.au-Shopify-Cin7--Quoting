@@ -169,9 +169,39 @@ function summarizeDraft(draft) {
 
 async function sendQuoteToCin7(quote) {
   const url = `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`;
-  const payload = [quote];
-  const res = await axios.post(url, payload, { headers: { Authorization: CIN7_AUTH_HEADER, 'Content-Type': 'application/json' }, timeout: 15000 });
-  return res.data;
+const payload = [quote];
+console.log(
+JSON.stringify({
+tag: "cin7.quote.request",
+payload,
+})
+);
+try {
+const res = await axios.post(url, payload, {
+headers: {
+Authorization: CIN7_AUTH_HEADER,
+"Content-Type": "application/json",
+},
+timeout: 15000,
+});
+console.log(
+JSON.stringify({
+tag: "cin7.quote.response",
+data: res.data,
+})
+);
+return res.data;
+} catch (e) {
+console.error(
+JSON.stringify({
+tag: "cin7.quote.error",
+status: e.response?.status,
+data: e.response?.data,
+message: e.message,
+})
+);
+throw e;
+}
 }
 
 const app = express();
