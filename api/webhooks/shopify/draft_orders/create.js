@@ -1,4 +1,3 @@
-// api/webhooks/shopify/draft_orders/create.js
 import crypto from "crypto";
 import axios from "axios";
 
@@ -10,6 +9,10 @@ const {
 	CIN7_API_KEY,
 	CIN7_BRANCH_ID,
 	CIN7_DEFAULT_CURRENCY = "USD",
+	LOG_SHOPIFY_SUMMARY = "0",
+	DEBUG_DRY_RUN = "0",
+	LOG_SHOPIFY_RAW = "0",
+	DEBUG_TOKEN,
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) console.error("Missing SHOPIFY_APP_SECRET");
@@ -18,6 +21,13 @@ if (!CIN7_USERNAME || !CIN7_API_KEY) console.error("Missing Cin7 credentials");
 const CIN7_AUTH_HEADER = `Basic ${Buffer.from(
 	`${CIN7_USERNAME}:${CIN7_API_KEY}`
 ).toString("base64")}`;
+
+const MAX_EVENTS = 20;
+const recentEvents = [];
+function recordEvent(evt) {
+	recentEvents.push(evt);
+	if (recentEvents.length > MAX_EVENTS) recentEvents.shift();
+}
 
 function timingSafeEqual(a, b) {
 	const ab = Buffer.from(a, "utf8");
@@ -43,20 +53,20 @@ function allowedShop(headers) {
 	return shop && shop.toLowerCase() === SHOPIFY_ALLOWED_SHOP.toLowerCase();
 }
 
-function mapDraftOrderToCin7Quote(draft) {
+export function mapDraftOrderToCin7Quote(draft) {
 	const cust = draft.customer || {};
 	const ship = draft.shipping_address || {};
 	const bill = draft.billing_address || {};
-
+	const primaryEmail =
+		draft.email || cust.email || bill.email || ship.email || null;
 	const quote = {
 		reference: draft.name || String(draft.id || ""),
 		firstName: cust.first_name || bill.first_name || ship.first_name || "",
 		lastName: cust.last_name || bill.last_name || ship.last_name || "",
 		company:
 			bill.company || ship.company || (cust.default_address?.company ?? ""),
-		email: draft.email || cust.email || "",
+		email: primaryEmail || undefined,
 		phone: ship.phone || bill.phone || cust.phone || "",
-
 		deliveryFirstName: ship.first_name || "",
 		deliveryLastName: ship.last_name || "",
 		deliveryCompany: ship.company || "",
@@ -66,7 +76,6 @@ function mapDraftOrderToCin7Quote(draft) {
 		deliveryState: ship.province || "",
 		deliveryPostalCode: ship.zip || "",
 		deliveryCountry: ship.country || "",
-
 		billingFirstName: bill.first_name || "",
 		billingLastName: bill.last_name || "",
 		billingCompany: bill.company || "",
@@ -76,7 +85,6 @@ function mapDraftOrderToCin7Quote(draft) {
 		billingPostalCode: bill.zip || "",
 		billingState: bill.province || "",
 		billingCountry: bill.country || "",
-
 		branchId: CIN7_BRANCH_ID ? Number(CIN7_BRANCH_ID) : undefined,
 		internalComments: draft.note || null,
 		currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
@@ -88,7 +96,6 @@ function mapDraftOrderToCin7Quote(draft) {
 			draft.applied_discount?.title ||
 			draft.applied_discount?.description ||
 			null,
-
 		lineItems: (draft.line_items || []).map((li, idx) => ({
 			code: li.sku || "",
 			name: li.title || "",
@@ -101,7 +108,6 @@ function mapDraftOrderToCin7Quote(draft) {
 			sort: idx + 1,
 		})),
 	};
-
 	Object.keys(quote).forEach((k) => {
 		if (quote[k] === undefined || quote[k] === null || quote[k] === "")
 			delete quote[k];
@@ -109,11 +115,38 @@ function mapDraftOrderToCin7Quote(draft) {
 	return quote;
 }
 
+function summarizeDraft(draft) {
+	return {
+		id: draft.id,
+		name: draft.name,
+		currency: draft.currency,
+		taxes_included: draft.taxes_included,
+		line_items: (draft.line_items || []).map((li) => ({
+			sku: li.sku,
+			title: li.title,
+			qty: li.quantity,
+			price: li.price,
+		})),
+	};
+}
+
 export default async function handler(req, res) {
+	// GET: return captured events (debug only)
+	if (req.method === "GET") {
+		if (!DEBUG_TOKEN || req.query.token !== DEBUG_TOKEN)
+			return res.status(403).json({ error: "Forbidden" });
+		return res.status(200).json({ events: recentEvents });
+	}
+
 	if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 	if (!allowedShop(req.headers)) return res.status(401).send("invalid shop");
 
-	// Read raw body for HMAC validation (why: Shopify signs the exact raw bytes)
+	const reqId = req.headers["x-shopify-event-id"] || crypto.randomUUID();
+	const shop = req.headers["x-shopify-shop-domain"] || "unknown";
+	const topic = req.headers["x-shopify-topic"] || "unknown";
+	const triggeredAt =
+		req.headers["x-shopify-triggered-at"] || new Date().toISOString();
+
 	const chunks = [];
 	for await (const chunk of req)
 		chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
@@ -130,8 +163,90 @@ export default async function handler(req, res) {
 	}
 	const draft = payload.draft_order || payload;
 
+	const capture = {
+		id: reqId,
+		receivedAt: new Date().toISOString(),
+		shop,
+		topic,
+		triggeredAt,
+		headers: {
+			"x-shopify-topic": req.headers["x-shopify-topic"],
+			"x-shopify-shop-domain": req.headers["x-shopify-shop-domain"],
+			"x-shopify-event-id": req.headers["x-shopify-event-id"],
+			"x-shopify-triggered-at": req.headers["x-shopify-triggered-at"],
+		},
+		body: draft,
+	};
+	if (LOG_SHOPIFY_RAW === "1") capture.raw = rawBody.toString("utf8");
+	recordEvent(capture);
+
+	if (LOG_SHOPIFY_SUMMARY === "1") {
+		console.log(
+			JSON.stringify({
+				tag: "shopify.draft.summary",
+				reqId,
+				shop,
+				topic,
+				triggeredAt,
+				draft: summarizeDraft(draft),
+			})
+		);
+	}
+
 	try {
 		const quote = mapDraftOrderToCin7Quote(draft);
+
+		if (!quote.email) {
+			console.warn(
+				JSON.stringify({
+					tag: "cin7.precondition.missingEmail",
+					reqId,
+					reference: quote.reference,
+					note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
+				})
+			);
+			return res.status(200).send("ok");
+		}
+
+		try {
+			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
+				params: {
+					fields: "id,email",
+					where: `email='${quote.email}'`,
+					rows: 1,
+				},
+				headers: { Authorization: CIN7_AUTH_HEADER },
+				timeout: 8000,
+			});
+			const contact = Array.isArray(r.data) ? r.data[0] : null;
+			if (contact?.id) quote.memberId = contact.id;
+		} catch (e) {
+			console.warn(
+				JSON.stringify({
+					tag: "cin7.contact.lookup.failed",
+					reqId,
+					status: e.response?.status,
+					message: e.message,
+				})
+			);
+		}
+
+		if (LOG_SHOPIFY_SUMMARY === "1") {
+			console.log(
+				JSON.stringify({
+					tag: "cin7.quote.preview",
+					reqId,
+					reference: quote.reference,
+					hasEmail: !!quote.email,
+					memberId: quote.memberId || 0,
+					lineCount: quote.lineItems?.length || 0,
+					codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
+				})
+			);
+		}
+
+		if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
+
 		await axios.post(`${CIN7_BASE_URL}/v1/Quotes?loadboms=false`, [quote], {
 			headers: {
 				Authorization: CIN7_AUTH_HEADER,
@@ -139,9 +254,19 @@ export default async function handler(req, res) {
 			},
 			timeout: 10000,
 		});
+
+		if (LOG_SHOPIFY_SUMMARY === "1") {
+			console.log(
+				JSON.stringify({
+					tag: "cin7.quote.created",
+					reqId,
+					reference: quote.reference,
+				})
+			);
+		}
+
 		return res.status(200).send("ok");
 	} catch (err) {
-		// why: avoid leaking secrets; log minimal info
 		console.error(
 			"Cin7 error",
 			err.response?.status,

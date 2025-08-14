@@ -1,7 +1,7 @@
-import express from "express";
-import crypto from "crypto";
 import axios from "axios";
+import crypto from "crypto";
 import dotenv from "dotenv";
+import express from "express";
 
 dotenv.config();
 
@@ -13,65 +13,47 @@ const {
 	CIN7_API_KEY,
 	CIN7_BRANCH_ID,
 	CIN7_DEFAULT_CURRENCY = "USD",
+	LOG_SHOPIFY_SUMMARY = "0",
+	DEBUG_DRY_RUN = "0",
 	PORT = 3000,
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) throw new Error("Missing SHOPIFY_APP_SECRET");
 if (!CIN7_USERNAME || !CIN7_API_KEY)
-	throw new Error("Missing CIN7 credentials");
+	throw new Error("Missing Cin7 credentials");
 
-// Basic Auth header for Cin7 Omni
 const CIN7_AUTH_HEADER = `Basic ${Buffer.from(
 	`${CIN7_USERNAME}:${CIN7_API_KEY}`
 ).toString("base64")}`;
 
-// In-memory idempotency store (use Redis/DB in production)
-const processedEvents = new Map(); // eventId -> epoch ms
-const EVENT_TTL_MS = 24 * 60 * 60 * 1000; // 24h
-
-function markProcessed(eventId) {
-	processedEvents.set(eventId, Date.now());
+function timingSafeEqual(a, b) {
+	const ab = Buffer.from(a, "utf8");
+	const bb = Buffer.from(b, "utf8");
+	return ab.length === bb.length && crypto.timingSafeEqual(ab, bb);
 }
 
-function isProcessed(eventId) {
-	if (!eventId) return false;
-	const ts = processedEvents.get(eventId);
-	if (!ts) return false;
-	if (Date.now() - ts > EVENT_TTL_MS) {
-		processedEvents.delete(eventId);
-		return false;
-	}
-	return true;
-}
-
-function sweepProcessed() {
-	const now = Date.now();
-	for (const [id, ts] of processedEvents.entries()) {
-		if (now - ts > EVENT_TTL_MS) processedEvents.delete(id);
-	}
-}
-setInterval(sweepProcessed, 60 * 60 * 1000).unref();
-
-// Verify HMAC using raw body bytes
-function verifyShopifyHmac(req) {
-	const receivedHmac =
-		req.get("X-Shopify-Hmac-Sha256") || req.get("x-shopify-hmac-sha256");
-	if (!receivedHmac) return false;
+function verifyShopifyHmac(rawBody, headers) {
+	const received =
+		headers["x-shopify-hmac-sha256"] || headers["X-Shopify-Hmac-Sha256"];
+	if (!received) return false;
 	const digest = crypto
 		.createHmac("sha256", SHOPIFY_APP_SECRET)
-		.update(req.body)
+		.update(rawBody)
 		.digest("base64");
-	// timing safe compare
-	const a = Buffer.from(digest, "utf8");
-	const b = Buffer.from(receivedHmac, "utf8");
-	return a.length === b.length && crypto.timingSafeEqual(a, b);
+	return timingSafeEqual(digest, received);
+}
+
+function allowedShop(headers) {
+	if (!SHOPIFY_ALLOWED_SHOP) return true;
+	const shop =
+		headers["x-shopify-shop-domain"] || headers["X-Shopify-Shop-Domain"];
+	return shop && shop.toLowerCase() === SHOPIFY_ALLOWED_SHOP.toLowerCase();
 }
 
 function mapDraftOrderToCin7Quote(draft) {
 	const cust = draft.customer || {};
 	const ship = draft.shipping_address || {};
 	const bill = draft.billing_address || {};
-
 	const quote = {
 		reference: draft.name || String(draft.id || ""),
 		firstName: cust.first_name || bill.first_name || ship.first_name || "",
@@ -80,7 +62,6 @@ function mapDraftOrderToCin7Quote(draft) {
 			bill.company || ship.company || (cust.default_address?.company ?? ""),
 		email: draft.email || cust.email || "",
 		phone: ship.phone || bill.phone || cust.phone || "",
-
 		deliveryFirstName: ship.first_name || "",
 		deliveryLastName: ship.last_name || "",
 		deliveryCompany: ship.company || "",
@@ -90,7 +71,6 @@ function mapDraftOrderToCin7Quote(draft) {
 		deliveryState: ship.province || "",
 		deliveryPostalCode: ship.zip || "",
 		deliveryCountry: ship.country || "",
-
 		billingFirstName: bill.first_name || "",
 		billingLastName: bill.last_name || "",
 		billingCompany: bill.company || "",
@@ -100,7 +80,6 @@ function mapDraftOrderToCin7Quote(draft) {
 		billingPostalCode: bill.zip || "",
 		billingState: bill.province || "",
 		billingCountry: bill.country || "",
-
 		branchId: CIN7_BRANCH_ID ? Number(CIN7_BRANCH_ID) : undefined,
 		internalComments: draft.note || null,
 		currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
@@ -112,13 +91,7 @@ function mapDraftOrderToCin7Quote(draft) {
 			draft.applied_discount?.title ||
 			draft.applied_discount?.description ||
 			null,
-
-		// Stage is optional; defaults to "New" in Cin7. You may set it via environment/config if needed.
-		// stage: 'New',
-
 		lineItems: (draft.line_items || []).map((li, idx) => ({
-			// NOTE: Cin7 prefers Code or ProductOptionId to link to products.
-			// Ensure Cin7 product codes match Shopify SKUs.
 			code: li.sku || "",
 			name: li.title || "",
 			option1: li.variant_title || "",
@@ -130,8 +103,6 @@ function mapDraftOrderToCin7Quote(draft) {
 			sort: idx + 1,
 		})),
 	};
-
-	// Remove undefined/null top-level keys that Cin7 may not like
 	Object.keys(quote).forEach((k) => {
 		if (quote[k] === undefined || quote[k] === null || quote[k] === "")
 			delete quote[k];
@@ -139,81 +110,115 @@ function mapDraftOrderToCin7Quote(draft) {
 	return quote;
 }
 
+function summarizeDraft(draft) {
+	return {
+		id: draft.id,
+		name: draft.name,
+		currency: draft.currency,
+		taxes_included: draft.taxes_included,
+		line_items: (draft.line_items || []).map((li) => ({
+			sku: li.sku,
+			title: li.title,
+			qty: li.quantity,
+			price: li.price,
+		})),
+	};
+}
+
 async function sendQuoteToCin7(quote) {
 	const url = `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`;
-	const payload = [quote]; // Cin7 expects a list for POST
+	const payload = [quote];
 	const res = await axios.post(url, payload, {
 		headers: {
 			Authorization: CIN7_AUTH_HEADER,
 			"Content-Type": "application/json",
 		},
-		// Cin7 limits: 3/sec, 60/min, 5000/day (single call here)
 		timeout: 15000,
 	});
 	return res.data;
 }
 
-function validateShopHeader(req) {
-	if (!SHOPIFY_ALLOWED_SHOP) return true;
-	const shop =
-		req.get("X-Shopify-Shop-Domain") || req.get("x-shopify-shop-domain");
-	return shop && shop.toLowerCase() === SHOPIFY_ALLOWED_SHOP.toLowerCase();
-}
-
-// Build Express app
 const app = express();
-
-// Use raw parser only for Shopify webhook routes to preserve body for HMAC
 const rawJson = express.raw({ type: "application/json" });
 
 app.get("/healthz", (_req, res) => res.status(200).send("ok"));
 
-// Draft Orders → Create → push to Cin7 Quote
 app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 	try {
-		if (!validateShopHeader(req)) {
-			return res.status(401).send("invalid shop");
-		}
-		if (!verifyShopifyHmac(req)) {
+		if (!allowedShop(req.headers)) return res.status(401).send("invalid shop");
+		if (!verifyShopifyHmac(req.body, req.headers))
 			return res.status(401).send("invalid hmac");
-		}
 
-		// Dedupe via Event-Id header (recommended by Shopify)
-		const eventId =
-			req.get("X-Shopify-Event-Id") || req.get("x-shopify-event-id");
-		if (isProcessed(eventId)) {
-			// Already handled, ack quickly
-			return res.status(200).send("duplicate ignored");
-		}
-
-		// Parse after HMAC check
 		const draft =
 			JSON.parse(req.body.toString("utf8")).draft_order ||
 			JSON.parse(req.body.toString("utf8"));
 
-		// Acknowledge within 5s, then process out-of-band
-		res.status(200).send("ok");
-
-		// Process asynchronously
-		try {
-			const quote = mapDraftOrderToCin7Quote(draft);
-			const cin7Response = await sendQuoteToCin7(quote);
-			markProcessed(eventId);
-			console.log("Cin7 Quote created:", JSON.stringify(cin7Response));
-		} catch (err) {
-			// NOTE: implement retry/queue here in production
-			console.error(
-				"Failed to send quote to Cin7:",
-				err.response?.status,
-				err.response?.data || err.message
+		if (LOG_SHOPIFY_SUMMARY === "1") {
+			console.log(
+				JSON.stringify({
+					tag: "shopify.draft.summary",
+					draft: summarizeDraft(draft),
+				})
 			);
 		}
-	} catch (err) {
-		// If anything unexpected happens before ack, still try to ack fast
+
+		const quote = mapDraftOrderToCin7Quote(draft);
+
+		if (!quote.email) {
+			console.warn(
+				JSON.stringify({
+					tag: "cin7.precondition.missingEmail",
+					reference: quote.reference,
+					note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
+				})
+			);
+			return res.status(200).send("ok");
+		}
+
+		// Try to resolve memberId by email
 		try {
-			res.status(200).send("ok");
-		} catch (_) {}
-		console.error("Webhook handler error:", err);
+			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
+				params: {
+					fields: "id,email",
+					where: `email='${quote.email}'`,
+					rows: 1,
+				},
+				headers: { Authorization: CIN7_AUTH_HEADER },
+				timeout: 8000,
+			});
+			const contact = Array.isArray(r.data) ? r.data[0] : null;
+			if (contact?.id) quote.memberId = contact.id;
+		} catch (e) {
+			console.warn(
+				JSON.stringify({
+					tag: "cin7.contact.lookup.failed",
+					status: e.response?.status,
+					message: e.message,
+				})
+			);
+		}
+
+		if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
+
+		await sendQuoteToCin7(quote);
+
+		if (LOG_SHOPIFY_SUMMARY === "1") {
+			console.log(
+				JSON.stringify({
+					tag: "cin7.quote.created",
+					reference: quote.reference,
+				})
+			);
+		}
+
+		return res.status(200).send("ok");
+	} catch (err) {
+		console.error(
+			"Webhook handler error:",
+			err.response?.status,
+			err.response?.data || err.message
+		);
+		return res.status(200).send("ok");
 	}
 });
 
