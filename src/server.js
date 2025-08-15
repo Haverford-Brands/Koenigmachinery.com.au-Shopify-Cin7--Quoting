@@ -13,8 +13,8 @@ const {
 	CIN7_API_KEY,
         CIN7_BRANCH_ID,
         CIN7_DEFAULT_CURRENCY = "USD",
-        LOG_SHOPIFY_SUMMARY = "0",
-        LOG_SHOPIFY_DRAFT = "0",
+        LOG_SHOPIFY_SUMMARY = "1",
+        LOG_SHOPIFY_DRAFT = "1",
         DEBUG_DRY_RUN = "0",
         PORT = 3000,
 } = process.env;
@@ -127,16 +127,36 @@ function summarizeDraft(draft) {
 }
 
 async function sendQuoteToCin7(quote) {
-	const url = `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`;
-	const payload = [quote];
-	const res = await axios.post(url, payload, {
-		headers: {
-			Authorization: CIN7_AUTH_HEADER,
-			"Content-Type": "application/json",
-		},
-		timeout: 15000,
-	});
-	return res.data;
+        const url = `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`;
+        const payload = [quote];
+
+        if (LOG_SHOPIFY_SUMMARY === "1") {
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.request",
+                                payload: quote,
+                        })
+                );
+        }
+
+        const res = await axios.post(url, payload, {
+                headers: {
+                        Authorization: CIN7_AUTH_HEADER,
+                        "Content-Type": "application/json",
+                },
+                timeout: 15000,
+        });
+
+        if (LOG_SHOPIFY_SUMMARY === "1") {
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.response",
+                                data: res.data,
+                        })
+                );
+        }
+
+        return res.data;
 }
 
 const app = express();
@@ -181,11 +201,11 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 				})
 			);
 			return res.status(200).send("ok");
-		}
+                }
 
-		// Try to resolve memberId by email
-		try {
-			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
+                // Try to resolve memberId by email
+                try {
+                        const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
 				params: {
 					fields: "id,email",
 					where: `email='${quote.email}'`,
@@ -204,20 +224,33 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 					message: e.message,
 				})
 			);
-		}
+                }
 
-		if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
+                if (LOG_SHOPIFY_SUMMARY === "1") {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "cin7.quote.preview",
+                                        reference: quote.reference,
+                                        hasEmail: !!quote.email,
+                                        memberId: quote.memberId || 0,
+                                        lineCount: quote.lineItems?.length || 0,
+                                        codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
+                                })
+                        );
+                }
 
-		await sendQuoteToCin7(quote);
+                if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
 
-		if (LOG_SHOPIFY_SUMMARY === "1") {
-			console.log(
-				JSON.stringify({
-					tag: "cin7.quote.created",
-					reference: quote.reference,
-				})
-			);
-		}
+                await sendQuoteToCin7(quote);
+
+                if (LOG_SHOPIFY_SUMMARY === "1") {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "cin7.quote.created",
+                                        reference: quote.reference,
+                                })
+                        );
+                }
 
 		return res.status(200).send("ok");
 	} catch (err) {

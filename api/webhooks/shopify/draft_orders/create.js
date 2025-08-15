@@ -9,11 +9,11 @@ const {
 	CIN7_API_KEY,
         CIN7_BRANCH_ID,
         CIN7_DEFAULT_CURRENCY = "USD",
-        LOG_SHOPIFY_SUMMARY = "0",
-        LOG_SHOPIFY_DRAFT = "0",
+        LOG_SHOPIFY_SUMMARY = "1",
+        LOG_SHOPIFY_DRAFT = "1",
         DEBUG_DRY_RUN = "0",
-        LOG_SHOPIFY_RAW = "0",
-        DEBUG_TOKEN,
+        LOG_SHOPIFY_RAW = "1",
+        DEBUG_TOKEN = "replace-me",
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) console.error("Missing SHOPIFY_APP_SECRET");
@@ -261,23 +261,44 @@ export default async function handler(req, res) {
 
 		if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
 
-		await axios.post(`${CIN7_BASE_URL}/v1/Quotes?loadboms=false`, [quote], {
-			headers: {
-				Authorization: CIN7_AUTH_HEADER,
-				"Content-Type": "application/json",
-			},
-			timeout: 10000,
-		});
+                if (LOG_SHOPIFY_SUMMARY === "1") {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "cin7.quote.request",
+                                        reqId,
+                                        payload: quote,
+                                })
+                        );
+                }
 
-		if (LOG_SHOPIFY_SUMMARY === "1") {
-			console.log(
-				JSON.stringify({
-					tag: "cin7.quote.created",
-					reqId,
-					reference: quote.reference,
-				})
-			);
-		}
+                const cin7Res = await axios.post(
+                        `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`,
+                        [quote],
+                        {
+                                headers: {
+                                        Authorization: CIN7_AUTH_HEADER,
+                                        "Content-Type": "application/json",
+                                },
+                                timeout: 10000,
+                        }
+                );
+
+                if (LOG_SHOPIFY_SUMMARY === "1") {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "cin7.quote.response",
+                                        reqId,
+                                        data: cin7Res.data,
+                                })
+                        );
+                        console.log(
+                                JSON.stringify({
+                                        tag: "cin7.quote.created",
+                                        reqId,
+                                        reference: quote.reference,
+                                })
+                        );
+                }
 
 		return res.status(200).send("ok");
 	} catch (err) {
