@@ -185,6 +185,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                         JSON.parse(req.body.toString("utf8")).draft_order ||
                         JSON.parse(req.body.toString("utf8"));
 
+
                 console.log({
                         tag: "shopify.draft.summary",
                         draft: summarizeDraft(draft),
@@ -198,12 +199,14 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 		const quote = mapDraftOrderToCin7Quote(draft);
 
                 if (!quote.memberEmail) {
+
                         console.warn({
                                 tag: "cin7.precondition.missingEmail",
                                 reference: quote.reference,
                                 note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
                         });
                         return res.status(200).send("ok");
+
                 }
 
                 // Try to resolve memberId by email
@@ -219,6 +222,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 			});
 			const contact = Array.isArray(r.data) ? r.data[0] : null;
 			if (contact?.id) quote.memberId = contact.id;
+
                 } catch (e) {
                         console.warn({
                                 tag: "cin7.contact.lookup.failed",
@@ -226,6 +230,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                                 message: e.message,
                         });
                 }
+
 
                 console.log({
                         tag: "cin7.quote.preview",

@@ -215,10 +215,12 @@ export default async function handler(req, res) {
                 draft,
         });
 
+
 	try {
 		const quote = mapDraftOrderToCin7Quote(draft);
 
                 if (!quote.memberEmail) {
+
                         console.warn({
                                 tag: "cin7.precondition.missingEmail",
                                 reqId,
@@ -227,6 +229,7 @@ export default async function handler(req, res) {
                         });
                         return res.status(200).send("ok");
                 }
+
 
 		try {
 			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
