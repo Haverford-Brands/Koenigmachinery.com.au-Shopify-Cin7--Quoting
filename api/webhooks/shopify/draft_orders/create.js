@@ -94,7 +94,7 @@ export function mapDraftOrderToCin7Quote(draft) {
                         null,
                 ...(draft.shipping_line?.price != null
                         ? {
-                                freight: Number(draft.shipping_line.price),
+                                freightTotal: Number(draft.shipping_line.price),
                                 freightTaxRate:
                                         draft.taxes_included &&
                                         draft.shipping_line.tax_lines?.[0]?.rate != null
@@ -104,6 +104,8 @@ export function mapDraftOrderToCin7Quote(draft) {
                                                 : undefined,
                           }
                         : {}),
+                freightDescription: draft.shipping_line.title  || null,
+                deliveryInstructions: draft.note || null,
                 taxRate:
                         draft.taxes_included && draft.tax_lines?.[0]?.rate != null
                                 ? Number(draft.tax_lines[0].rate) * 100
