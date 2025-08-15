@@ -89,6 +89,18 @@ function mapDraftOrderToCin7Quote(draft) {
                         draft.applied_discount?.title ||
                         draft.applied_discount?.description ||
                         null,
+                ...(draft.shipping_line?.price != null
+                        ? {
+                                freight: Number(draft.shipping_line.price),
+                                freightTaxRate:
+                                        draft.taxes_included &&
+                                        draft.shipping_line.tax_lines?.[0]?.rate != null
+                                                ? Number(
+                                                          draft.shipping_line.tax_lines[0].rate
+                                                  ) * 100
+                                                : undefined,
+                          }
+                        : {}),
                 taxRate:
                         draft.taxes_included && draft.tax_lines?.[0]?.rate != null
                                 ? Number(draft.tax_lines[0].rate) * 100
@@ -135,6 +147,7 @@ async function sendQuoteToCin7(quote) {
         const url = `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`;
         const payload = [quote];
         console.log(
+                "cin7.quote.request:",
                 JSON.stringify({
                         tag: "cin7.quote.request",
                         payload: quote,
@@ -149,6 +162,7 @@ async function sendQuoteToCin7(quote) {
                 timeout: 15000,
         });
         console.log(
+                "cin7.quote.response:",
                 JSON.stringify({
                         tag: "cin7.quote.response",
                         data: res.data,
@@ -175,6 +189,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 
 
                 console.log(
+                        "shopify.draft.summary:",
                         JSON.stringify({
                                 tag: "shopify.draft.summary",
                                 draft: summarizeDraft(draft),
@@ -182,6 +197,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                 );
 
                 console.log(
+                        "shopify.draft.full:",
                         JSON.stringify({
 
                                 tag: "shopify.draft.full",
@@ -192,13 +208,14 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 		const quote = mapDraftOrderToCin7Quote(draft);
 
                 if (!quote.memberEmail) {
-			console.warn(
-				JSON.stringify({
-					tag: "cin7.precondition.missingEmail",
-					reference: quote.reference,
+                        console.warn(
+                                "cin7.precondition.missingEmail:",
+                                JSON.stringify({
+                                        tag: "cin7.precondition.missingEmail",
+                                        reference: quote.reference,
                                         note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
-				})
-			);
+                                })
+                        );
 			return res.status(200).send("ok");
                 }
 
@@ -216,16 +233,18 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 			const contact = Array.isArray(r.data) ? r.data[0] : null;
 			if (contact?.id) quote.memberId = contact.id;
 		} catch (e) {
-			console.warn(
-				JSON.stringify({
-					tag: "cin7.contact.lookup.failed",
-					status: e.response?.status,
-					message: e.message,
-				})
-			);
+                        console.warn(
+                                "cin7.contact.lookup.failed:",
+                                JSON.stringify({
+                                        tag: "cin7.contact.lookup.failed",
+                                        status: e.response?.status,
+                                        message: e.message,
+                                })
+                        );
                 }
 
                 console.log(
+                        "cin7.quote.preview:",
                         JSON.stringify({
                                 tag: "cin7.quote.preview",
                                 reference: quote.reference,
@@ -241,6 +260,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                 const result = Array.isArray(data) ? data[0] : data;
                 if (result?.success) {
                         console.log(
+                                "cin7.quote.created:",
                                 JSON.stringify({
                                         tag: "cin7.quote.created",
                                         reference: quote.reference,
@@ -249,6 +269,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                         );
                 } else {
                         console.warn(
+                                "cin7.quote.error:",
                                 JSON.stringify({
                                         tag: "cin7.quote.error",
                                         reference: quote.reference,
