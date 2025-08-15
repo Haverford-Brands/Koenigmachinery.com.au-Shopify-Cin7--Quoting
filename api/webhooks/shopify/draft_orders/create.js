@@ -254,6 +254,7 @@ export default async function handler(req, res) {
                         })
                 );
 
+
                 console.log(
                         JSON.stringify({
                                 tag: "cin7.quote.request",
@@ -280,6 +281,7 @@ export default async function handler(req, res) {
                                 data: cin7Res.data,
                         })
                 );
+
                 const result = Array.isArray(cin7Res.data)
                         ? cin7Res.data[0]
                         : cin7Res.data;

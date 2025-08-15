@@ -73,3 +73,4 @@ const hmac = crypto
     process.exit(1);
   }
 })();
+

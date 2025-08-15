@@ -148,7 +148,6 @@ async function sendQuoteToCin7(quote) {
                 },
                 timeout: 15000,
         });
-
         console.log(
                 JSON.stringify({
                         tag: "cin7.quote.response",
@@ -174,6 +173,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                         JSON.parse(req.body.toString("utf8")).draft_order ||
                         JSON.parse(req.body.toString("utf8"));
 
+
                 console.log(
                         JSON.stringify({
                                 tag: "shopify.draft.summary",
@@ -183,6 +183,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 
                 console.log(
                         JSON.stringify({
+
                                 tag: "shopify.draft.full",
                                 draft,
                         })
@@ -235,6 +236,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                         })
                 );
 
+
                 const data = await sendQuoteToCin7(quote);
                 const result = Array.isArray(data) ? data[0] : data;
                 if (result?.success) {
@@ -260,6 +262,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                 console.error(
                         "Webhook handler error:",
                         err.response?.status,
+
 			err.response?.data || err.message
 		);
 		return res.status(200).send("ok");
