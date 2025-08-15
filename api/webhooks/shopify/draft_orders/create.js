@@ -50,88 +50,65 @@ function allowedShop(headers) {
 }
 
 export function mapDraftOrderToCin7Quote(draft) {
-        const cust = draft.customer || {};
-        const ship = draft.shipping_address || {};
-        const bill = draft.billing_address || {};
-        const shippingLine = draft.shipping_line || {};
-        const primaryEmail =
-                draft.email || cust.email || bill.email || ship.email || null;
-
-        const lineDiscountTotal = (draft.line_items || []).reduce((sum, li) => {
-                const amt = li.applied_discount?.amount
-                        ? Number(li.applied_discount.amount)
-                        : 0;
-                return sum + amt;
-        }, 0);
-        const orderDiscount = draft.applied_discount?.amount
-                ? Number(draft.applied_discount.amount)
-                : 0;
-        const discountTotal = orderDiscount + lineDiscountTotal;
-        const firstDiscount =
-                draft.applied_discount ||
-                draft.line_items?.find((li) => li.applied_discount)?.applied_discount;
-        const discountDescription = firstDiscount?.title || firstDiscount?.description || null;
-
-        const quote = {
-                reference: draft.name || String(draft.id || ""),
-                firstName: cust.first_name || bill.first_name || ship.first_name || "",
-                lastName: cust.last_name || bill.last_name || ship.last_name || "",
-                company:
-                        bill.company || ship.company || (cust.default_address?.company ?? ""),
-                memberEmail: primaryEmail || undefined,
-                phone: ship.phone || bill.phone || cust.phone || "",
-                deliveryFirstName: ship.first_name || "",
-                deliveryLastName: ship.last_name || "",
-                deliveryCompany: ship.company || "",
-                deliveryAddress1: ship.address1 || "",
-                deliveryAddress2: ship.address2 || "",
-                deliveryCity: ship.city || "",
-                deliveryState: ship.province || "",
-                deliveryPostalCode: ship.zip || "",
-                deliveryCountry: ship.country || "",
-                billingFirstName: bill.first_name || "",
-                billingLastName: bill.last_name || "",
-                billingCompany: bill.company || "",
-                billingAddress1: bill.address1 || "",
-                billingAddress2: bill.address2 || "",
-                billingCity: bill.city || "",
-                billingPostalCode: bill.zip || "",
-                billingState: bill.province || "",
-                billingCountry: bill.country || "",
-                branchId: CIN7_BRANCH_ID ? Number(CIN7_BRANCH_ID) : undefined,
-                internalComments: draft.note || null,
-                currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
-                taxStatus: draft.taxes_included ? "Incl" : "Excl",
-                discountTotal,
-                discountDescription,
-                freightTotal:
-                        shippingLine.price != null ? Number(shippingLine.price) : undefined,
-                freightDescription: shippingLine.title || undefined,
-                taxRate:
-                        draft.taxes_included && draft.tax_lines?.[0]?.rate != null
-                                ? Number(draft.tax_lines[0].rate) * 100
-                                : undefined,
-                lineItems: (draft.line_items || []).map((li, idx) => ({
-                        code: li.sku || "",
-                        name: li.title || "",
-                        option1: li.variant_title || "",
-                        qty: Number(li.quantity || 0),
-                        unitPrice: li.price != null ? Number(li.price) : 0,
-                        discount: li.applied_discount?.amount
-                                ? Number(li.applied_discount.amount)
-                                : 0,
-                        taxRate:
-                                draft.taxes_included && li.tax_lines?.[0]?.rate != null
-                                        ? Number(li.tax_lines[0].rate) * 100
-                                        : undefined,
-                        sort: idx + 1,
-                })),
-        };
-        Object.keys(quote).forEach((k) => {
-                if (quote[k] === undefined || quote[k] === null || quote[k] === "")
-                        delete quote[k];
-        });
-        return quote;
+	const cust = draft.customer || {};
+	const ship = draft.shipping_address || {};
+	const bill = draft.billing_address || {};
+	const primaryEmail =
+		draft.email || cust.email || bill.email || ship.email || null;
+	const quote = {
+		reference: draft.name || String(draft.id || ""),
+		firstName: cust.first_name || bill.first_name || ship.first_name || "",
+		lastName: cust.last_name || bill.last_name || ship.last_name || "",
+		company:
+			bill.company || ship.company || (cust.default_address?.company ?? ""),
+		email: primaryEmail || undefined,
+		phone: ship.phone || bill.phone || cust.phone || "",
+		deliveryFirstName: ship.first_name || "",
+		deliveryLastName: ship.last_name || "",
+		deliveryCompany: ship.company || "",
+		deliveryAddress1: ship.address1 || "",
+		deliveryAddress2: ship.address2 || "",
+		deliveryCity: ship.city || "",
+		deliveryState: ship.province || "",
+		deliveryPostalCode: ship.zip || "",
+		deliveryCountry: ship.country || "",
+		billingFirstName: bill.first_name || "",
+		billingLastName: bill.last_name || "",
+		billingCompany: bill.company || "",
+		billingAddress1: bill.address1 || "",
+		billingAddress2: bill.address2 || "",
+		billingCity: bill.city || "",
+		billingPostalCode: bill.zip || "",
+		billingState: bill.province || "",
+		billingCountry: bill.country || "",
+		branchId: CIN7_BRANCH_ID ? Number(CIN7_BRANCH_ID) : undefined,
+		internalComments: draft.note || null,
+		currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
+		taxStatus: draft.taxes_included ? "Incl" : "Excl",
+		discountTotal: draft.applied_discount?.amount
+			? Number(draft.applied_discount.amount)
+			: 0,
+		discountDescription:
+			draft.applied_discount?.title ||
+			draft.applied_discount?.description ||
+			null,
+		lineItems: (draft.line_items || []).map((li, idx) => ({
+			code: li.sku || "",
+			name: li.title || "",
+			option1: li.variant_title || "",
+			qty: Number(li.quantity || 0),
+			unitPrice: li.price != null ? Number(li.price) : 0,
+			discount: li.applied_discount?.amount
+				? Number(li.applied_discount.amount)
+				: 0,
+			sort: idx + 1,
+		})),
+	};
+	Object.keys(quote).forEach((k) => {
+		if (quote[k] === undefined || quote[k] === null || quote[k] === "")
+			delete quote[k];
+	});
+	return quote;
 }
 
 function summarizeDraft(draft) {
@@ -257,66 +234,39 @@ export default async function handler(req, res) {
 			);
 		}
 
-                console.log(
-                        JSON.stringify({
-                                tag: "cin7.quote.preview",
-                                reqId,
-                                reference: quote.reference,
-                                hasEmail: !!quote.memberEmail,
-                                memberId: quote.memberId || 0,
-                                lineCount: quote.lineItems?.length || 0,
-                                codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
-                        })
-                );
+		if (LOG_SHOPIFY_SUMMARY === "1") {
+			console.log(
+				JSON.stringify({
+					tag: "cin7.quote.preview",
+					reqId,
+					reference: quote.reference,
+					hasEmail: !!quote.email,
+					memberId: quote.memberId || 0,
+					lineCount: quote.lineItems?.length || 0,
+					codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
+				})
+			);
+		}
 
-                console.log(
-                        JSON.stringify({
-                                tag: "cin7.quote.request",
-                                reqId,
-                                payload: quote,
-                        })
-                );
+		if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
 
-                const cin7Res = await axios.post(
-                        `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`,
-                        [quote],
-                        {
-                                headers: {
-                                        Authorization: CIN7_AUTH_HEADER,
-                                        "Content-Type": "application/json",
-                                },
-                                timeout: 10000,
-                        }
-                );
-                console.log(
-                        JSON.stringify({
-                                tag: "cin7.quote.response",
-                                reqId,
-                                data: cin7Res.data,
-                        })
-                );
-                const result = Array.isArray(cin7Res.data)
-                        ? cin7Res.data[0]
-                        : cin7Res.data;
-                if (result?.success) {
-                        console.log(
-                                JSON.stringify({
-                                        tag: "cin7.quote.created",
-                                        reqId,
-                                        reference: quote.reference,
-                                        id: result.id,
-                                })
-                        );
-                } else {
-                        console.warn(
-                                JSON.stringify({
-                                        tag: "cin7.quote.error",
-                                        reqId,
-                                        reference: quote.reference,
-                                        errors: result?.errors || [],
-                                })
-                        );
-                }
+		await axios.post(`${CIN7_BASE_URL}/v1/Quotes?loadboms=false`, [quote], {
+			headers: {
+				Authorization: CIN7_AUTH_HEADER,
+				"Content-Type": "application/json",
+			},
+			timeout: 10000,
+		});
+
+		if (LOG_SHOPIFY_SUMMARY === "1") {
+			console.log(
+				JSON.stringify({
+					tag: "cin7.quote.created",
+					reqId,
+					reference: quote.reference,
+				})
+			);
+		}
 
                 return res.status(200).send("ok");
 	} catch (err) {
