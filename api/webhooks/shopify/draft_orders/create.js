@@ -2,18 +2,13 @@ import crypto from "crypto";
 import axios from "axios";
 
 const {
-	SHOPIFY_APP_SECRET,
-	SHOPIFY_ALLOWED_SHOP,
-	CIN7_BASE_URL = "https://api.cin7.com/api",
-	CIN7_USERNAME,
-	CIN7_API_KEY,
+        SHOPIFY_APP_SECRET,
+        SHOPIFY_ALLOWED_SHOP,
+        CIN7_BASE_URL = "https://api.cin7.com/api",
+        CIN7_USERNAME,
+        CIN7_API_KEY,
         CIN7_BRANCH_ID,
         CIN7_DEFAULT_CURRENCY = "USD",
-        LOG_SHOPIFY_SUMMARY = "0",
-        LOG_SHOPIFY_DRAFT = "0",
-        DEBUG_DRY_RUN = "0",
-        LOG_SHOPIFY_RAW = "0",
-        DEBUG_TOKEN,
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) console.error("Missing SHOPIFY_APP_SECRET");
@@ -58,15 +53,15 @@ export function mapDraftOrderToCin7Quote(draft) {
 	const cust = draft.customer || {};
 	const ship = draft.shipping_address || {};
 	const bill = draft.billing_address || {};
-	const primaryEmail =
-		draft.email || cust.email || bill.email || ship.email || null;
+        const primaryEmail =
+                draft.email || cust.email || bill.email || ship.email || null;
 	const quote = {
 		reference: draft.name || String(draft.id || ""),
 		firstName: cust.first_name || bill.first_name || ship.first_name || "",
 		lastName: cust.last_name || bill.last_name || ship.last_name || "",
 		company:
 			bill.company || ship.company || (cust.default_address?.company ?? ""),
-		email: primaryEmail || undefined,
+                memberEmail: primaryEmail || undefined,
 		phone: ship.phone || bill.phone || cust.phone || "",
 		deliveryFirstName: ship.first_name || "",
 		deliveryLastName: ship.last_name || "",
@@ -93,21 +88,29 @@ export function mapDraftOrderToCin7Quote(draft) {
 		discountTotal: draft.applied_discount?.amount
 			? Number(draft.applied_discount.amount)
 			: 0,
-		discountDescription:
-			draft.applied_discount?.title ||
-			draft.applied_discount?.description ||
-			null,
-		lineItems: (draft.line_items || []).map((li, idx) => ({
-			code: li.sku || "",
-			name: li.title || "",
-			option1: li.variant_title || "",
-			qty: Number(li.quantity || 0),
-			unitPrice: li.price != null ? Number(li.price) : 0,
-			discount: li.applied_discount?.amount
-				? Number(li.applied_discount.amount)
-				: 0,
-			sort: idx + 1,
-		})),
+                discountDescription:
+                        draft.applied_discount?.title ||
+                        draft.applied_discount?.description ||
+                        null,
+                taxRate:
+                        draft.taxes_included && draft.tax_lines?.[0]?.rate != null
+                                ? Number(draft.tax_lines[0].rate) * 100
+                                : undefined,
+                lineItems: (draft.line_items || []).map((li, idx) => ({
+                        code: li.sku || "",
+                        name: li.title || "",
+                        option1: li.variant_title || "",
+                        qty: Number(li.quantity || 0),
+                        unitPrice: li.price != null ? Number(li.price) : 0,
+                        discount: li.applied_discount?.amount
+                                ? Number(li.applied_discount.amount)
+                                : 0,
+                        taxRate:
+                                draft.taxes_included && li.tax_lines?.[0]?.rate != null
+                                        ? Number(li.tax_lines[0].rate) * 100
+                                        : undefined,
+                        sort: idx + 1,
+                })),
 	};
 	Object.keys(quote).forEach((k) => {
 		if (quote[k] === undefined || quote[k] === null || quote[k] === "")
@@ -132,12 +135,10 @@ function summarizeDraft(draft) {
 }
 
 export default async function handler(req, res) {
-	// GET: return captured events (debug only)
-	if (req.method === "GET") {
-		if (!DEBUG_TOKEN || req.query.token !== DEBUG_TOKEN)
-			return res.status(403).json({ error: "Forbidden" });
-		return res.status(200).json({ events: recentEvents });
-	}
+        // GET: return captured events
+        if (req.method === "GET") {
+                return res.status(200).json({ events: recentEvents });
+        }
 
 	if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 	if (!allowedShop(req.headers)) return res.status(401).send("invalid shop");
@@ -178,45 +179,41 @@ export default async function handler(req, res) {
 		},
 		body: draft,
 	};
-	if (LOG_SHOPIFY_RAW === "1") capture.raw = rawBody.toString("utf8");
+        capture.raw = rawBody.toString("utf8");
 	recordEvent(capture);
 
-        if (LOG_SHOPIFY_SUMMARY === "1") {
-                console.log(
-                        JSON.stringify({
-                                tag: "shopify.draft.summary",
-                                reqId,
-                                shop,
-                                topic,
-                                triggeredAt,
-                                draft: summarizeDraft(draft),
-                        })
-                );
-        }
+        console.log(
+                JSON.stringify({
+                        tag: "shopify.draft.summary",
+                        reqId,
+                        shop,
+                        topic,
+                        triggeredAt,
+                        draft: summarizeDraft(draft),
+                })
+        );
 
-        if (LOG_SHOPIFY_DRAFT === "1") {
-                console.log(
-                        JSON.stringify({
-                                tag: "shopify.draft.full",
-                                reqId,
-                                shop,
-                                topic,
-                                triggeredAt,
-                                draft,
-                        })
-                );
-        }
+        console.log(
+                JSON.stringify({
+                        tag: "shopify.draft.full",
+                        reqId,
+                        shop,
+                        topic,
+                        triggeredAt,
+                        draft,
+                })
+        );
 
 	try {
 		const quote = mapDraftOrderToCin7Quote(draft);
 
-		if (!quote.email) {
+                if (!quote.memberEmail) {
 			console.warn(
 				JSON.stringify({
 					tag: "cin7.precondition.missingEmail",
 					reqId,
 					reference: quote.reference,
-					note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
+                                        note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
 				})
 			);
 			return res.status(200).send("ok");
@@ -225,8 +222,8 @@ export default async function handler(req, res) {
 		try {
 			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
 				params: {
-					fields: "id,email",
-					where: `email='${quote.email}'`,
+                                        fields: "id,email",
+                                        where: `email='${quote.memberEmail}'`,
 					rows: 1,
 				},
 				headers: { Authorization: CIN7_AUTH_HEADER },
@@ -245,41 +242,68 @@ export default async function handler(req, res) {
 			);
 		}
 
-		if (LOG_SHOPIFY_SUMMARY === "1") {
-			console.log(
-				JSON.stringify({
-					tag: "cin7.quote.preview",
-					reqId,
-					reference: quote.reference,
-					hasEmail: !!quote.email,
-					memberId: quote.memberId || 0,
-					lineCount: quote.lineItems?.length || 0,
-					codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
-				})
-			);
-		}
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.preview",
+                                reqId,
+                                reference: quote.reference,
+                                hasEmail: !!quote.memberEmail,
+                                memberId: quote.memberId || 0,
+                                lineCount: quote.lineItems?.length || 0,
+                                codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
+                        })
+                );
 
-		if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.request",
+                                reqId,
+                                payload: quote,
+                        })
+                );
 
-		await axios.post(`${CIN7_BASE_URL}/v1/Quotes?loadboms=false`, [quote], {
-			headers: {
-				Authorization: CIN7_AUTH_HEADER,
-				"Content-Type": "application/json",
-			},
-			timeout: 10000,
-		});
+                const cin7Res = await axios.post(
+                        `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`,
+                        [quote],
+                        {
+                                headers: {
+                                        Authorization: CIN7_AUTH_HEADER,
+                                        "Content-Type": "application/json",
+                                },
+                                timeout: 10000,
+                        }
+                );
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.response",
+                                reqId,
+                                data: cin7Res.data,
+                        })
+                );
+                const result = Array.isArray(cin7Res.data)
+                        ? cin7Res.data[0]
+                        : cin7Res.data;
+                if (result?.success) {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "cin7.quote.created",
+                                        reqId,
+                                        reference: quote.reference,
+                                        id: result.id,
+                                })
+                        );
+                } else {
+                        console.warn(
+                                JSON.stringify({
+                                        tag: "cin7.quote.error",
+                                        reqId,
+                                        reference: quote.reference,
+                                        errors: result?.errors || [],
+                                })
+                        );
+                }
 
-		if (LOG_SHOPIFY_SUMMARY === "1") {
-			console.log(
-				JSON.stringify({
-					tag: "cin7.quote.created",
-					reqId,
-					reference: quote.reference,
-				})
-			);
-		}
-
-		return res.status(200).send("ok");
+                return res.status(200).send("ok");
 	} catch (err) {
 		console.error(
 			"Cin7 error",
