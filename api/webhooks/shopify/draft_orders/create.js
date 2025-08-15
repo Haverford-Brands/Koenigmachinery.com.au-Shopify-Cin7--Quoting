@@ -9,11 +9,11 @@ const {
 	CIN7_API_KEY,
         CIN7_BRANCH_ID,
         CIN7_DEFAULT_CURRENCY = "USD",
-        LOG_SHOPIFY_SUMMARY = "0",
-        LOG_SHOPIFY_DRAFT = "0",
+        LOG_SHOPIFY_SUMMARY = "1",
+        LOG_SHOPIFY_DRAFT = "1",
         DEBUG_DRY_RUN = "0",
-        LOG_SHOPIFY_RAW = "0",
-        DEBUG_TOKEN,
+        LOG_SHOPIFY_RAW = "1",
+        DEBUG_TOKEN = "replace-me",
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) console.error("Missing SHOPIFY_APP_SECRET");

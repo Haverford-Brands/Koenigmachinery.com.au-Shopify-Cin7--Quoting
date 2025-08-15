@@ -13,8 +13,8 @@ const {
 	CIN7_API_KEY,
         CIN7_BRANCH_ID,
         CIN7_DEFAULT_CURRENCY = "USD",
-        LOG_SHOPIFY_SUMMARY = "0",
-        LOG_SHOPIFY_DRAFT = "0",
+        LOG_SHOPIFY_SUMMARY = "1",
+        LOG_SHOPIFY_DRAFT = "1",
         DEBUG_DRY_RUN = "0",
         PORT = 3000,
 } = process.env;
