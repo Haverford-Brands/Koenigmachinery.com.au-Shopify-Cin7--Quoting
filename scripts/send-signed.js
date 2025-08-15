@@ -117,7 +117,7 @@ function mapDraftOrderToCin7Quote(draft) {
     firstName: cust.first_name || bill.first_name || ship.first_name || '',
     lastName: cust.last_name || bill.last_name || ship.last_name || '',
     company: bill.company || ship.company || (cust.default_address?.company ?? ''),
-    email: draft.email || cust.email || '',
+    memberEmail: draft.email || cust.email || '',
     phone: ship.phone || bill.phone || cust.phone || '',
     deliveryFirstName: ship.first_name || '',
     deliveryLastName: ship.last_name || '',
@@ -253,7 +253,7 @@ app.post('/webhooks/shopify/draft_orders/create', rawJson, async (req, res) => {
 
     const quote = mapDraftOrderToCin7Quote(draft);
 
-    if (!quote.email) {
+    if (!quote.memberEmail) {
       console.warn(JSON.stringify({ tag: 'cin7.precondition.missingEmail', reference: quote.reference, note: 'No email found on draft/customer; Cin7 requires email when memberId is not provided.' }));
       return res.status(200).send('ok');
     }
@@ -261,7 +261,7 @@ app.post('/webhooks/shopify/draft_orders/create', rawJson, async (req, res) => {
     // Try to resolve memberId by email
     try {
       const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
-        params: { fields: 'id,email', where: `email='${quote.email}'`, rows: 1 },
+        params: { fields: 'id,email', where: `email='${quote.memberEmail}'`, rows: 1 },
         headers: { Authorization: CIN7_AUTH_HEADER },
         timeout: 8000,
       });

@@ -58,7 +58,7 @@ function mapDraftOrderToCin7Quote(draft) {
 		lastName: cust.last_name || bill.last_name || ship.last_name || "",
 		company:
 			bill.company || ship.company || (cust.default_address?.company ?? ""),
-		email: draft.email || cust.email || "",
+                memberEmail: draft.email || cust.email || "",
 		phone: ship.phone || bill.phone || cust.phone || "",
 		deliveryFirstName: ship.first_name || "",
 		deliveryLastName: ship.last_name || "",
@@ -181,12 +181,12 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 
 		const quote = mapDraftOrderToCin7Quote(draft);
 
-		if (!quote.email) {
+                if (!quote.memberEmail) {
 			console.warn(
 				JSON.stringify({
 					tag: "cin7.precondition.missingEmail",
 					reference: quote.reference,
-					note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
+                                        note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
 				})
 			);
 			return res.status(200).send("ok");
@@ -197,7 +197,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                         const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
 				params: {
 					fields: "id,email",
-					where: `email='${quote.email}'`,
+                                        where: `email='${quote.memberEmail}'`,
 					rows: 1,
 				},
 				headers: { Authorization: CIN7_AUTH_HEADER },
@@ -214,7 +214,24 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 				})
 			);
                 }
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.preview",
+                                reference: quote.reference,
+                                hasEmail: !!quote.memberEmail,
+                                memberId: quote.memberId || 0,
+                                lineCount: quote.lineItems?.length || 0,
+                                codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
+                        })
+                );
 
+                await sendQuoteToCin7(quote);
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.created",
+                                reference: quote.reference,
+                        })
+                );
                 console.log(
                         JSON.stringify({
                                 tag: "cin7.quote.preview",

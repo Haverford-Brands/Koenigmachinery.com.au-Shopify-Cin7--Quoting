@@ -53,15 +53,15 @@ export function mapDraftOrderToCin7Quote(draft) {
 	const cust = draft.customer || {};
 	const ship = draft.shipping_address || {};
 	const bill = draft.billing_address || {};
-	const primaryEmail =
-		draft.email || cust.email || bill.email || ship.email || null;
+        const primaryEmail =
+                draft.email || cust.email || bill.email || ship.email || null;
 	const quote = {
 		reference: draft.name || String(draft.id || ""),
 		firstName: cust.first_name || bill.first_name || ship.first_name || "",
 		lastName: cust.last_name || bill.last_name || ship.last_name || "",
 		company:
 			bill.company || ship.company || (cust.default_address?.company ?? ""),
-		email: primaryEmail || undefined,
+                memberEmail: primaryEmail || undefined,
 		phone: ship.phone || bill.phone || cust.phone || "",
 		deliveryFirstName: ship.first_name || "",
 		deliveryLastName: ship.last_name || "",
@@ -199,13 +199,13 @@ export default async function handler(req, res) {
 	try {
 		const quote = mapDraftOrderToCin7Quote(draft);
 
-		if (!quote.email) {
+                if (!quote.memberEmail) {
 			console.warn(
 				JSON.stringify({
 					tag: "cin7.precondition.missingEmail",
 					reqId,
 					reference: quote.reference,
-					note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
+                                        note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
 				})
 			);
 			return res.status(200).send("ok");
@@ -214,8 +214,8 @@ export default async function handler(req, res) {
 		try {
 			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
 				params: {
-					fields: "id,email",
-					where: `email='${quote.email}'`,
+                                        fields: "id,email",
+                                        where: `email='${quote.memberEmail}'`,
 					rows: 1,
 				},
 				headers: { Authorization: CIN7_AUTH_HEADER },
@@ -239,7 +239,7 @@ export default async function handler(req, res) {
                                 tag: "cin7.quote.preview",
                                 reqId,
                                 reference: quote.reference,
-                                hasEmail: !!quote.email,
+                                hasEmail: !!quote.memberEmail,
                                 memberId: quote.memberId || 0,
                                 lineCount: quote.lineItems?.length || 0,
                                 codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
