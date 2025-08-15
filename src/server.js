@@ -140,7 +140,6 @@ async function sendQuoteToCin7(quote) {
                 },
                 timeout: 15000,
         });
-
         console.log(
                 JSON.stringify({
                         tag: "cin7.quote.response",
@@ -215,7 +214,6 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 				})
 			);
                 }
-
                 console.log(
                         JSON.stringify({
                                 tag: "cin7.quote.preview",
@@ -234,7 +232,24 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                                 reference: quote.reference,
                         })
                 );
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.preview",
+                                reference: quote.reference,
+                                hasEmail: !!quote.email,
+                                memberId: quote.memberId || 0,
+                                lineCount: quote.lineItems?.length || 0,
+                                codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
+                        })
+                );
 
+                await sendQuoteToCin7(quote);
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.created",
+                                reference: quote.reference,
+                        })
+                );
 		return res.status(200).send("ok");
 	} catch (err) {
 		console.error(
