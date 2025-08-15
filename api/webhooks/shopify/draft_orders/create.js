@@ -88,21 +88,29 @@ export function mapDraftOrderToCin7Quote(draft) {
 		discountTotal: draft.applied_discount?.amount
 			? Number(draft.applied_discount.amount)
 			: 0,
-		discountDescription:
-			draft.applied_discount?.title ||
-			draft.applied_discount?.description ||
-			null,
-		lineItems: (draft.line_items || []).map((li, idx) => ({
-			code: li.sku || "",
-			name: li.title || "",
-			option1: li.variant_title || "",
-			qty: Number(li.quantity || 0),
-			unitPrice: li.price != null ? Number(li.price) : 0,
-			discount: li.applied_discount?.amount
-				? Number(li.applied_discount.amount)
-				: 0,
-			sort: idx + 1,
-		})),
+                discountDescription:
+                        draft.applied_discount?.title ||
+                        draft.applied_discount?.description ||
+                        null,
+                taxRate:
+                        draft.taxes_included && draft.tax_lines?.[0]?.rate != null
+                                ? Number(draft.tax_lines[0].rate) * 100
+                                : undefined,
+                lineItems: (draft.line_items || []).map((li, idx) => ({
+                        code: li.sku || "",
+                        name: li.title || "",
+                        option1: li.variant_title || "",
+                        qty: Number(li.quantity || 0),
+                        unitPrice: li.price != null ? Number(li.price) : 0,
+                        discount: li.applied_discount?.amount
+                                ? Number(li.applied_discount.amount)
+                                : 0,
+                        taxRate:
+                                draft.taxes_included && li.tax_lines?.[0]?.rate != null
+                                        ? Number(li.tax_lines[0].rate) * 100
+                                        : undefined,
+                        sort: idx + 1,
+                })),
 	};
 	Object.keys(quote).forEach((k) => {
 		if (quote[k] === undefined || quote[k] === null || quote[k] === "")
@@ -246,6 +254,7 @@ export default async function handler(req, res) {
                         })
                 );
 
+
                 console.log(
                         JSON.stringify({
                                 tag: "cin7.quote.request",
@@ -265,7 +274,6 @@ export default async function handler(req, res) {
                                 timeout: 10000,
                         }
                 );
-
                 console.log(
                         JSON.stringify({
                                 tag: "cin7.quote.response",
@@ -273,15 +281,31 @@ export default async function handler(req, res) {
                                 data: cin7Res.data,
                         })
                 );
-                console.log(
-                        JSON.stringify({
-                                tag: "cin7.quote.created",
-                                reqId,
-                                reference: quote.reference,
-                        })
-                );
 
-		return res.status(200).send("ok");
+                const result = Array.isArray(cin7Res.data)
+                        ? cin7Res.data[0]
+                        : cin7Res.data;
+                if (result?.success) {
+                        console.log(
+                                JSON.stringify({
+                                        tag: "cin7.quote.created",
+                                        reqId,
+                                        reference: quote.reference,
+                                        id: result.id,
+                                })
+                        );
+                } else {
+                        console.warn(
+                                JSON.stringify({
+                                        tag: "cin7.quote.error",
+                                        reqId,
+                                        reference: quote.reference,
+                                        errors: result?.errors || [],
+                                })
+                        );
+                }
+
+                return res.status(200).send("ok");
 	} catch (err) {
 		console.error(
 			"Cin7 error",
