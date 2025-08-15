@@ -140,7 +140,6 @@ async function sendQuoteToCin7(quote) {
                 },
                 timeout: 15000,
         });
-
         console.log(
                 JSON.stringify({
                         tag: "cin7.quote.response",
@@ -234,7 +233,6 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
                                 reference: quote.reference,
                         })
                 );
-
 		return res.status(200).send("ok");
 	} catch (err) {
 		console.error(
