@@ -2,13 +2,13 @@ import crypto from "crypto";
 import axios from "axios";
 
 const {
-        SHOPIFY_APP_SECRET,
-        SHOPIFY_ALLOWED_SHOP,
-        CIN7_BASE_URL = "https://api.cin7.com/api",
-        CIN7_USERNAME,
-        CIN7_API_KEY,
-        CIN7_BRANCH_ID,
-        CIN7_DEFAULT_CURRENCY = "USD",
+	SHOPIFY_APP_SECRET,
+	SHOPIFY_ALLOWED_SHOP,
+	CIN7_BASE_URL = "https://api.cin7.com/api",
+	CIN7_USERNAME,
+	CIN7_API_KEY,
+	CIN7_BRANCH_ID,
+	CIN7_DEFAULT_CURRENCY = "USD",
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) console.error("Missing SHOPIFY_APP_SECRET");
@@ -127,10 +127,10 @@ function summarizeDraft(draft) {
 }
 
 export default async function handler(req, res) {
-        // GET: return captured events
-        if (req.method === "GET") {
-                return res.status(200).json({ events: recentEvents });
-        }
+	// GET: return captured events
+	if (req.method === "GET") {
+		return res.status(200).json({ events: recentEvents });
+	}
 
 	if (req.method !== "POST") return res.status(405).send("Method Not Allowed");
 	if (!allowedShop(req.headers)) return res.status(401).send("invalid shop");
@@ -171,41 +171,41 @@ export default async function handler(req, res) {
 		},
 		body: draft,
 	};
-        capture.raw = rawBody.toString("utf8");
+	capture.raw = rawBody.toString("utf8");
 	recordEvent(capture);
 
-        console.log(
-                JSON.stringify({
-                        tag: "shopify.draft.summary",
-                        reqId,
-                        shop,
-                        topic,
-                        triggeredAt,
-                        draft: summarizeDraft(draft),
-                })
-        );
+	console.log(
+		JSON.stringify({
+			tag: "shopify.draft.summary",
+			reqId,
+			shop,
+			topic,
+			triggeredAt,
+			draft: summarizeDraft(draft),
+		})
+	);
 
-        console.log(
-                JSON.stringify({
-                        tag: "shopify.draft.full",
-                        reqId,
-                        shop,
-                        topic,
-                        triggeredAt,
-                        draft,
-                })
-        );
+	console.log(
+		JSON.stringify({
+			tag: "shopify.draft.full",
+			reqId,
+			shop,
+			topic,
+			triggeredAt,
+			draft,
+		})
+	);
 
 	try {
 		const quote = mapDraftOrderToCin7Quote(draft);
 
-                if (!quote.memberEmail) {
+		if (!quote.memberEmail) {
 			console.warn(
 				JSON.stringify({
 					tag: "cin7.precondition.missingEmail",
 					reqId,
 					reference: quote.reference,
-                                        note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
+					note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
 				})
 			);
 			return res.status(200).send("ok");
@@ -214,8 +214,8 @@ export default async function handler(req, res) {
 		try {
 			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
 				params: {
-                                        fields: "id,email",
-                                        where: `email='${quote.memberEmail}'`,
+					fields: "id,email",
+					where: `email='${quote.memberEmail}'`,
 					rows: 1,
 				},
 				headers: { Authorization: CIN7_AUTH_HEADER },
@@ -268,7 +268,7 @@ export default async function handler(req, res) {
 			);
 		}
 
-                return res.status(200).send("ok");
+		return res.status(200).send("ok");
 	} catch (err) {
 		console.error(
 			"Cin7 error",

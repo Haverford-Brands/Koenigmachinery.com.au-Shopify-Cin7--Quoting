@@ -6,14 +6,14 @@ import express from "express";
 dotenv.config();
 
 const {
-        SHOPIFY_APP_SECRET,
-        SHOPIFY_ALLOWED_SHOP,
-        CIN7_BASE_URL = "https://api.cin7.com/api",
-        CIN7_USERNAME,
-        CIN7_API_KEY,
-        CIN7_BRANCH_ID,
-        CIN7_DEFAULT_CURRENCY = "USD",
-        PORT = 3000,
+	SHOPIFY_APP_SECRET,
+	SHOPIFY_ALLOWED_SHOP,
+	CIN7_BASE_URL = "https://api.cin7.com/api",
+	CIN7_USERNAME,
+	CIN7_API_KEY,
+	CIN7_BRANCH_ID,
+	CIN7_DEFAULT_CURRENCY = "USD",
+	PORT = 3000,
 } = process.env;
 
 if (!SHOPIFY_APP_SECRET) throw new Error("Missing SHOPIFY_APP_SECRET");
@@ -147,45 +147,45 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 		if (!verifyShopifyHmac(req.body, req.headers))
 			return res.status(401).send("invalid hmac");
 
-                const draft =
-                        JSON.parse(req.body.toString("utf8")).draft_order ||
-                        JSON.parse(req.body.toString("utf8"));
+		const draft =
+			JSON.parse(req.body.toString("utf8")).draft_order ||
+			JSON.parse(req.body.toString("utf8"));
 
-                if (LOG_SHOPIFY_SUMMARY === "1") {
-                        console.log(
-                                JSON.stringify({
-                                        tag: "shopify.draft.summary",
-                                        draft: summarizeDraft(draft),
-                                })
-                        );
-                }
+		if (LOG_SHOPIFY_SUMMARY === "1") {
+			console.log(
+				JSON.stringify({
+					tag: "shopify.draft.summary",
+					draft: summarizeDraft(draft),
+				})
+			);
+		}
 
-                console.log(
-									JSON.stringify({
-										tag: "shopify.draft.full",
-										draft,
-									})
-								);
+		console.log(
+			JSON.stringify({
+				tag: "shopify.draft.full",
+				draft,
+			})
+		);
 
 		const quote = mapDraftOrderToCin7Quote(draft);
 
-                if (!quote.memberEmail) {
+		if (!quote.memberEmail) {
 			console.warn(
 				JSON.stringify({
 					tag: "cin7.precondition.missingEmail",
 					reference: quote.reference,
-                                        note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
+					note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
 				})
 			);
 			return res.status(200).send("ok");
-                }
+		}
 
-                // Try to resolve memberId by email
-                try {
-                        const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
+		// Try to resolve memberId by email
+		try {
+			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
 				params: {
 					fields: "id,email",
-                                        where: `email='${quote.memberEmail}'`,
+					where: `email='${quote.memberEmail}'`,
 					rows: 1,
 				},
 				headers: { Authorization: CIN7_AUTH_HEADER },
@@ -201,7 +201,7 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 					message: e.message,
 				})
 			);
-                }
+		}
 
 		if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
 
