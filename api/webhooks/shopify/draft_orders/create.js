@@ -92,6 +92,18 @@ export function mapDraftOrderToCin7Quote(draft) {
                         draft.applied_discount?.title ||
                         draft.applied_discount?.description ||
                         null,
+                ...(draft.shipping_line?.price != null
+                        ? {
+                                freight: Number(draft.shipping_line.price),
+                                freightTaxRate:
+                                        draft.taxes_included &&
+                                        draft.shipping_line.tax_lines?.[0]?.rate != null
+                                                ? Number(
+                                                          draft.shipping_line.tax_lines[0].rate
+                                                  ) * 100
+                                                : undefined,
+                          }
+                        : {}),
                 taxRate:
                         draft.taxes_included && draft.tax_lines?.[0]?.rate != null
                                 ? Number(draft.tax_lines[0].rate) * 100
@@ -183,6 +195,7 @@ export default async function handler(req, res) {
 	recordEvent(capture);
 
         console.log(
+                "shopify.draft.summary:",
                 JSON.stringify({
                         tag: "shopify.draft.summary",
                         reqId,
@@ -194,6 +207,7 @@ export default async function handler(req, res) {
         );
 
         console.log(
+                "shopify.draft.full:",
                 JSON.stringify({
                         tag: "shopify.draft.full",
                         reqId,
@@ -208,14 +222,15 @@ export default async function handler(req, res) {
 		const quote = mapDraftOrderToCin7Quote(draft);
 
                 if (!quote.memberEmail) {
-			console.warn(
-				JSON.stringify({
-					tag: "cin7.precondition.missingEmail",
-					reqId,
-					reference: quote.reference,
+                        console.warn(
+                                "cin7.precondition.missingEmail:",
+                                JSON.stringify({
+                                        tag: "cin7.precondition.missingEmail",
+                                        reqId,
+                                        reference: quote.reference,
                                         note: "No email found on draft/customer; Cin7 requires email when memberId is not provided.",
-				})
-			);
+                                })
+                        );
 			return res.status(200).send("ok");
 		}
 
@@ -232,17 +247,19 @@ export default async function handler(req, res) {
 			const contact = Array.isArray(r.data) ? r.data[0] : null;
 			if (contact?.id) quote.memberId = contact.id;
 		} catch (e) {
-			console.warn(
-				JSON.stringify({
-					tag: "cin7.contact.lookup.failed",
-					reqId,
-					status: e.response?.status,
-					message: e.message,
-				})
-			);
+                        console.warn(
+                                "cin7.contact.lookup.failed:",
+                                JSON.stringify({
+                                        tag: "cin7.contact.lookup.failed",
+                                        reqId,
+                                        status: e.response?.status,
+                                        message: e.message,
+                                })
+                        );
 		}
 
                 console.log(
+                        "cin7.quote.preview:",
                         JSON.stringify({
                                 tag: "cin7.quote.preview",
                                 reqId,
@@ -256,6 +273,7 @@ export default async function handler(req, res) {
 
 
                 console.log(
+                        "cin7.quote.request:",
                         JSON.stringify({
                                 tag: "cin7.quote.request",
                                 reqId,
@@ -275,6 +293,7 @@ export default async function handler(req, res) {
                         }
                 );
                 console.log(
+                        "cin7.quote.response:",
                         JSON.stringify({
                                 tag: "cin7.quote.response",
                                 reqId,
@@ -287,6 +306,7 @@ export default async function handler(req, res) {
                         : cin7Res.data;
                 if (result?.success) {
                         console.log(
+                                "cin7.quote.created:",
                                 JSON.stringify({
                                         tag: "cin7.quote.created",
                                         reqId,
@@ -296,6 +316,7 @@ export default async function handler(req, res) {
                         );
                 } else {
                         console.warn(
+                                "cin7.quote.error:",
                                 JSON.stringify({
                                         tag: "cin7.quote.error",
                                         reqId,
