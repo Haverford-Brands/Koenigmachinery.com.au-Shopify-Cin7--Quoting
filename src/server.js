@@ -6,16 +6,13 @@ import express from "express";
 dotenv.config();
 
 const {
-	SHOPIFY_APP_SECRET,
-	SHOPIFY_ALLOWED_SHOP,
-	CIN7_BASE_URL = "https://api.cin7.com/api",
-	CIN7_USERNAME,
-	CIN7_API_KEY,
+        SHOPIFY_APP_SECRET,
+        SHOPIFY_ALLOWED_SHOP,
+        CIN7_BASE_URL = "https://api.cin7.com/api",
+        CIN7_USERNAME,
+        CIN7_API_KEY,
         CIN7_BRANCH_ID,
         CIN7_DEFAULT_CURRENCY = "USD",
-        LOG_SHOPIFY_SUMMARY = "1",
-        LOG_SHOPIFY_DRAFT = "1",
-        DEBUG_DRY_RUN = "0",
         PORT = 3000,
 } = process.env;
 
@@ -129,15 +126,12 @@ function summarizeDraft(draft) {
 async function sendQuoteToCin7(quote) {
         const url = `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`;
         const payload = [quote];
-
-        if (LOG_SHOPIFY_SUMMARY === "1") {
-                console.log(
-                        JSON.stringify({
-                                tag: "cin7.quote.request",
-                                payload: quote,
-                        })
-                );
-        }
+        console.log(
+                JSON.stringify({
+                        tag: "cin7.quote.request",
+                        payload: quote,
+                })
+        );
 
         const res = await axios.post(url, payload, {
                 headers: {
@@ -146,15 +140,12 @@ async function sendQuoteToCin7(quote) {
                 },
                 timeout: 15000,
         });
-
-        if (LOG_SHOPIFY_SUMMARY === "1") {
-                console.log(
-                        JSON.stringify({
-                                tag: "cin7.quote.response",
-                                data: res.data,
-                        })
-                );
-        }
+        console.log(
+                JSON.stringify({
+                        tag: "cin7.quote.response",
+                        data: res.data,
+                })
+        );
 
         return res.data;
 }
@@ -170,25 +161,23 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 		if (!verifyShopifyHmac(req.body, req.headers))
 			return res.status(401).send("invalid hmac");
 
-		const draft =
-			JSON.parse(req.body.toString("utf8")).draft_order ||
-			JSON.parse(req.body.toString("utf8"));
-
-                if (LOG_SHOPIFY_SUMMARY === "1") {
-                        console.log(
-                                JSON.stringify({
-                                        tag: "shopify.draft.summary",
-                                        draft: summarizeDraft(draft),
-                                })
-                        );
-                }
+                const draft =
+                        JSON.parse(req.body.toString("utf8")).draft_order ||
+                        JSON.parse(req.body.toString("utf8"));
 
                 console.log(
-									JSON.stringify({
-										tag: "shopify.draft.full",
-										draft,
-									})
-								);
+                        JSON.stringify({
+                                tag: "shopify.draft.summary",
+                                draft: summarizeDraft(draft),
+                        })
+                );
+
+                console.log(
+                        JSON.stringify({
+                                tag: "shopify.draft.full",
+                                draft,
+                        })
+                );
 
 		const quote = mapDraftOrderToCin7Quote(draft);
 
@@ -226,32 +215,24 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 			);
                 }
 
-                if (LOG_SHOPIFY_SUMMARY === "1") {
-                        console.log(
-                                JSON.stringify({
-                                        tag: "cin7.quote.preview",
-                                        reference: quote.reference,
-                                        hasEmail: !!quote.email,
-                                        memberId: quote.memberId || 0,
-                                        lineCount: quote.lineItems?.length || 0,
-                                        codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
-                                })
-                        );
-                }
-
-                if (DEBUG_DRY_RUN === "1") return res.status(200).send("ok");
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.preview",
+                                reference: quote.reference,
+                                hasEmail: !!quote.email,
+                                memberId: quote.memberId || 0,
+                                lineCount: quote.lineItems?.length || 0,
+                                codes: (quote.lineItems || []).map((l) => l.code).filter(Boolean),
+                        })
+                );
 
                 await sendQuoteToCin7(quote);
-
-                if (LOG_SHOPIFY_SUMMARY === "1") {
-                        console.log(
-                                JSON.stringify({
-                                        tag: "cin7.quote.created",
-                                        reference: quote.reference,
-                                })
-                        );
-                }
-
+                console.log(
+                        JSON.stringify({
+                                tag: "cin7.quote.created",
+                                reference: quote.reference,
+                        })
+                );
 		return res.status(200).send("ok");
 	} catch (err) {
 		console.error(
