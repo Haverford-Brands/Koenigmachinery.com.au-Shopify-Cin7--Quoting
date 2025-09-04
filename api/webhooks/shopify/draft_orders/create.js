@@ -2,16 +2,15 @@ import crypto from "crypto";
 import axios from "axios";
 
 const {
-        SHOPIFY_APP_SECRET,
-        SHOPIFY_ALLOWED_SHOP,
-        CIN7_BASE_URL = "https://api.cin7.com/api",
+        SHOPIFY_WEBHOOK_SECRET,
+        SHOPIFY_WEBHOOK_ALLOWED_SHOP,
+        CIN7_BASE_URL,
         CIN7_USERNAME,
         CIN7_API_KEY,
-        CIN7_BRANCH_ID,
-        CIN7_DEFAULT_CURRENCY = "USD",
+        CIN7_DEFAULT_CURRENCY = "AUD",
 } = process.env;
 
-if (!SHOPIFY_APP_SECRET) console.error("Missing SHOPIFY_APP_SECRET");
+if (!SHOPIFY_WEBHOOK_SECRET) console.error("Missing SHOPIFY_WEBHOOK_SECRET");
 if (!CIN7_USERNAME || !CIN7_API_KEY) console.error("Missing Cin7 credentials");
 
 const CIN7_AUTH_HEADER = `Basic ${Buffer.from(
@@ -36,17 +35,17 @@ function verifyShopifyHmac(rawBody, headers) {
 		headers["x-shopify-hmac-sha256"] || headers["X-Shopify-Hmac-Sha256"];
 	if (!received) return false;
 	const digest = crypto
-		.createHmac("sha256", SHOPIFY_APP_SECRET)
+		.createHmac("sha256", SHOPIFY_WEBHOOK_SECRET)
 		.update(rawBody)
 		.digest("base64");
 	return timingSafeEqual(digest, received);
 }
 
 function allowedShop(headers) {
-	if (!SHOPIFY_ALLOWED_SHOP) return true;
+	if (!SHOPIFY_WEBHOOK_ALLOWED_SHOP) return true;
 	const shop =
 		headers["x-shopify-shop-domain"] || headers["X-Shopify-Shop-Domain"];
-	return shop && shop.toLowerCase() === SHOPIFY_ALLOWED_SHOP.toLowerCase();
+	return shop && shop.toLowerCase() === SHOPIFY_WEBHOOK_ALLOWED_SHOP.toLowerCase();
 }
 
 export function mapDraftOrderToCin7Quote(draft) {

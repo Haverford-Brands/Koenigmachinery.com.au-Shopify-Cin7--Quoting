@@ -6,17 +6,17 @@ import express from "express";
 dotenv.config();
 
 const {
-	SHOPIFY_APP_SECRET,
-	SHOPIFY_ALLOWED_SHOP,
-	CIN7_BASE_URL = "https://api.cin7.com/api",
+	SHOPIFY_WEBHOOK_SECRET,
+	SHOPIFY_WEBHOOK_ALLOWED_SHOP,
+	CIN7_BASE_URL,
 	CIN7_USERNAME,
 	CIN7_API_KEY,
 	CIN7_BRANCH_ID,
-	CIN7_DEFAULT_CURRENCY = "USD",
+	CIN7_DEFAULT_CURRENCY = "AUD",
 	PORT = 3000,
 } = process.env;
 
-if (!SHOPIFY_APP_SECRET) throw new Error("Missing SHOPIFY_APP_SECRET");
+if (!SHOPIFY_WEBHOOK_SECRET) throw new Error("Missing SHOPIFY_WEBHOOK_SECRET");
 if (!CIN7_USERNAME || !CIN7_API_KEY)
 	throw new Error("Missing Cin7 credentials");
 
@@ -35,17 +35,17 @@ function verifyShopifyHmac(rawBody, headers) {
 		headers["x-shopify-hmac-sha256"] || headers["X-Shopify-Hmac-Sha256"];
 	if (!received) return false;
 	const digest = crypto
-		.createHmac("sha256", SHOPIFY_APP_SECRET)
+		.createHmac("sha256", SHOPIFY_WEBHOOK_SECRET)
 		.update(rawBody)
 		.digest("base64");
 	return timingSafeEqual(digest, received);
 }
 
 function allowedShop(headers) {
-	if (!SHOPIFY_ALLOWED_SHOP) return true;
+	if (!SHOPIFY_WEBHOOK_ALLOWED_SHOP) return true;
 	const shop =
 		headers["x-shopify-shop-domain"] || headers["X-Shopify-Shop-Domain"];
-	return shop && shop.toLowerCase() === SHOPIFY_ALLOWED_SHOP.toLowerCase();
+	return shop && shop.toLowerCase() === SHOPIFY_WEBHOOK_ALLOWED_SHOP.toLowerCase();
 }
 
 function parseNoteFields(noteValue) {
