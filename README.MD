@@ -45,3 +45,22 @@ curl -X POST http://localhost:3000/webhooks/shopify/draft_orders/create \
 ```
 
 > Compute the signature with your `SHOPIFY_APP_SECRET` exactly over the **raw** JSON bytes.
+
+
+# .env file
+
+# Shopify Webhook Authentication (koenig-machinery.myshopify.com)
+SHOPIFY_WEBHOOK_SECRET= Webhooks will be signed with this to verify authenticity.
+SHOPIFY_WEBHOOK_ALLOWED_SHOP= Webhook will only be accepted from this domain
+# Shopify App API Credentials (koenig-machinery.myshopify.com)
+SHOPIFY_APP_API_KEY= API key
+SHOPIFY_APP_API_SECRET_KEY= API secret key
+SHOPIFY_APP_API_ACCESS_TOKEN= Admin API access token
+SHOPIFY_SHOP_DOMAIN= Shopify domain
+PRODUCT_METAFIELD_NS= 
+PRODUCT_METAFIELD_KEY=specification_table
+
+# --- Cin7 Omni ---
+CIN7_BASE_URL= Cin7 API Base URL
+CIN7_USERNAME= Cin7 User name
+CIN7_API_KEY= Cin7 API Key

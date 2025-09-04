@@ -7,8 +7,7 @@
 		"dev": "node --env-file=.env src/server.js",
 		"start": "node src/server.js",
 		"tunnel": "lt --port 3000 --local-host 127.0.0.1",
-		"tunnel:cf": "cloudflared tunnel --url http://127.0.0.1:3000",
-		"tunnel:ngrok": "ngrok http 3000"
+		"dev:with-tunnel": "concurrently -n server,tunnel -c green,cyan \"npm:dev\" \"npm:tunnel\""
 	},
 	"dependencies": {
 		"axios": "^1.7.7",
@@ -18,5 +17,9 @@
 	},
 	"engines": {
 		"node": "20.x"
+	},
+	"devDependencies": {
+		"concurrently": "^9.2.1",
+		"nodemon": "^3.1.10"
 	}
 }
