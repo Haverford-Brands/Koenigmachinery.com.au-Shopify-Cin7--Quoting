@@ -7,6 +7,7 @@ const {
         CIN7_BASE_URL,
         CIN7_USERNAME,
         CIN7_API_KEY,
+        CIN7_BRANCH_ID,
         CIN7_DEFAULT_CURRENCY = "AUD",
 } = process.env;
 
@@ -16,6 +17,13 @@ if (!CIN7_USERNAME || !CIN7_API_KEY) console.error("Missing Cin7 credentials");
 const CIN7_AUTH_HEADER = `Basic ${Buffer.from(
 	`${CIN7_USERNAME}:${CIN7_API_KEY}`
 ).toString("base64")}`;
+
+const branchIdEnv = (() => {
+	const raw = typeof CIN7_BRANCH_ID === "string" ? CIN7_BRANCH_ID.trim() : "";
+	if (!raw || raw.toLowerCase() === "all") return undefined;
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) ? parsed : undefined;
+})();
 
 const MAX_EVENTS = 20;
 const recentEvents = [];
@@ -80,7 +88,7 @@ export function mapDraftOrderToCin7Quote(draft) {
 		billingPostalCode: bill.zip || "",
 		billingState: bill.province || "",
 		billingCountry: bill.country || "",
-		branchId: CIN7_BRANCH_ID ? Number(CIN7_BRANCH_ID) : undefined,
+		...(branchIdEnv != null ? { branchId: branchIdEnv } : {}),
 		internalComments: draft.note || null,
 		currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
 		taxStatus: draft.taxes_included ? "Incl" : "Excl",

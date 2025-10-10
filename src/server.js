@@ -24,6 +24,13 @@ const CIN7_AUTH_HEADER = `Basic ${Buffer.from(
 	`${CIN7_USERNAME}:${CIN7_API_KEY}`
 ).toString("base64")}`;
 
+const branchIdEnv = (() => {
+	const raw = typeof CIN7_BRANCH_ID === "string" ? CIN7_BRANCH_ID.trim() : "";
+	if (!raw || raw.toLowerCase() === "all") return undefined;
+	const parsed = Number(raw);
+	return Number.isFinite(parsed) ? parsed : undefined;
+})();
+
 function timingSafeEqual(a, b) {
 	const ab = Buffer.from(a, "utf8");
 	const bb = Buffer.from(b, "utf8");
@@ -104,7 +111,7 @@ export function mapDraftOrderToCin7Quote(draft) {
 		billingState: bill.province || "",
 		billingCountry: bill.country || "",
 
-		branchId: CIN7_BRANCH_ID ? Number(CIN7_BRANCH_ID) : undefined,
+		...(branchIdEnv != null ? { branchId: branchIdEnv } : {}),
 
 		// Keep as string; your inbound draft.note is a string already
 		internalComments:
