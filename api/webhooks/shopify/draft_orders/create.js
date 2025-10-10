@@ -8,6 +8,7 @@ const {
         CIN7_USERNAME,
         CIN7_API_KEY,
         CIN7_BRANCH_ID,
+        CIN7_DEFAULT_INCLUSIVE_TAX_RATE,
         CIN7_DEFAULT_CURRENCY = "AUD",
 } = process.env;
 
@@ -30,6 +31,30 @@ function cin7TaxRate(value) {
 	return Number.isFinite(numeric) ? numeric * 100 : undefined;
 }
 
+function normalizeTaxRateInput(rawValue) {
+	const numeric = Number(rawValue);
+	if (!Number.isFinite(numeric)) return undefined;
+	if (numeric === 0) return 0;
+	return Math.abs(numeric) > 1 ? numeric / 100 : numeric;
+}
+
+const fallbackInclusiveTaxRateInfo = (() => {
+	const raw =
+		typeof CIN7_DEFAULT_INCLUSIVE_TAX_RATE === "string"
+			? CIN7_DEFAULT_INCLUSIVE_TAX_RATE.trim()
+			: "";
+	const effective = raw === "" ? "10" : raw;
+	const decimal = normalizeTaxRateInput(effective);
+	return {
+		decimal: decimal != null ? decimal : 0.1,
+		source: raw === "" ? "default" : "env",
+	};
+})();
+
+const fallbackInclusiveTaxRate = cin7TaxRate(
+	fallbackInclusiveTaxRateInfo.decimal
+);
+
 function extractRateFromLines(taxLines) {
 	if (!Array.isArray(taxLines)) return undefined;
 	for (const line of taxLines) {
@@ -47,16 +72,21 @@ function taxRateFromLines(taxLines) {
 }
 
 function resolveDefaultInclusiveTaxRate(draft) {
-	if (!draft?.taxes_included) return undefined;
+	if (!draft?.taxes_included)
+		return { rate: undefined, source: "exclusive" };
+
 	const quoteLevel = taxRateFromLines(draft.tax_lines);
-	if (quoteLevel != null) return quoteLevel;
+	if (quoteLevel != null) return { rate: quoteLevel, source: "order" };
+
 	for (const item of draft.line_items || []) {
 		const itemRate = taxRateFromLines(item?.tax_lines);
-		if (itemRate != null) return itemRate;
+		if (itemRate != null) return { rate: itemRate, source: "line-item" };
 	}
+
 	const freight = taxRateFromLines(draft.shipping_line?.tax_lines);
-	if (freight != null) return freight;
-	return 0;
+	if (freight != null) return { rate: freight, source: "freight" };
+
+	return { rate: fallbackInclusiveTaxRate, source: "fallback" };
 }
 
 const MAX_EVENTS = 20;
@@ -97,7 +127,10 @@ export function mapDraftOrderToCin7Quote(draft) {
         const primaryEmail =
                 draft.email || cust.email || bill.email || ship.email || null;
 	const isTaxInclusive = !!draft.taxes_included;
-	const defaultTaxRate = resolveDefaultInclusiveTaxRate(draft);
+	const {
+		rate: defaultTaxRate,
+		source: taxRateSource,
+	} = resolveDefaultInclusiveTaxRate(draft);
 	const freightTaxRate =
 		isTaxInclusive
 			? taxRateFromLines(draft.shipping_line?.tax_lines) ?? defaultTaxRate
@@ -173,6 +206,19 @@ export function mapDraftOrderToCin7Quote(draft) {
 			if (itemTaxRate != null) item.taxRate = itemTaxRate;
 			return item;
 		});
+	}
+	if (isTaxInclusive && taxRateSource === "fallback") {
+		console.warn(
+			"cin7.taxRate.fallback:",
+			JSON.stringify({
+				tag: "cin7.taxRate.fallback",
+				reference: quote.reference,
+				source: fallbackInclusiveTaxRateInfo.source,
+				percent: Number(
+					(fallbackInclusiveTaxRateInfo.decimal * 100).toFixed(3)
+				),
+			})
+		);
 	}
 	Object.keys(quote).forEach((k) => {
 		if (quote[k] === undefined || quote[k] === null || quote[k] === "")
