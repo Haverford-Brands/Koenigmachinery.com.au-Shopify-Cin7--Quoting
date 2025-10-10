@@ -32,6 +32,13 @@ const branchIdEnv = (() => {
 	return Number.isFinite(parsed) ? parsed : undefined;
 })();
 
+function normalizeState(value) {
+	const raw = typeof value === "string" ? value.trim() : "";
+	if (!raw) return "";
+	if (raw.toLowerCase() === "disabled") return "";
+	return raw;
+}
+
 function cin7TaxRate(value) {
 	const numeric = Number(value);
 	return Number.isFinite(numeric) ? numeric * 100 : undefined;
@@ -167,23 +174,33 @@ export function mapDraftOrderToCin7Quote(draft) {
 
 		deliveryFirstName: ship.first_name || "",
 		deliveryLastName: ship.last_name || "",
-		deliveryCompany: ship.company || "",
-		deliveryAddress1: ship.address1 || "",
-		deliveryAddress2: ship.address2 || "",
-		deliveryCity: ship.city || "",
-		deliveryState: ship.province || "",
-		deliveryPostalCode: ship.zip || "",
-		deliveryCountry: ship.country || "",
+			deliveryCompany: ship.company || "",
+			deliveryAddress1: ship.address1 || "",
+			deliveryAddress2: ship.address2 || "",
+			deliveryCity: ship.city || "",
+			deliveryState:
+				normalizeState(ship.province) ||
+				normalizeState(ship.province_code) ||
+				normalizeState(cust.default_address?.province) ||
+				normalizeState(cust.default_address?.province_code) ||
+				"",
+			deliveryPostalCode: ship.zip || "",
+			deliveryCountry: ship.country || "",
 
-		billingFirstName: bill.first_name || "",
-		billingLastName: bill.last_name || "",
+			billingFirstName: bill.first_name || "",
+			billingLastName: bill.last_name || "",
 		billingCompany: bill.company || "",
 		billingAddress1: bill.address1 || "",
-		billingAddress2: bill.address2 || "",
-		billingCity: bill.city || "",
-		billingPostalCode: bill.zip || "",
-		billingState: bill.province || "",
-		billingCountry: bill.country || "",
+			billingAddress2: bill.address2 || "",
+			billingCity: bill.city || "",
+			billingPostalCode: bill.zip || "",
+			billingState:
+				normalizeState(bill.province) ||
+				normalizeState(bill.province_code) ||
+				normalizeState(cust.default_address?.province) ||
+				normalizeState(cust.default_address?.province_code) ||
+				"",
+			billingCountry: bill.country || "",
 
 		...(branchIdEnv != null ? { branchId: branchIdEnv } : {}),
 
