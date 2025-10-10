@@ -31,6 +31,40 @@ const branchIdEnv = (() => {
 	return Number.isFinite(parsed) ? parsed : undefined;
 })();
 
+function cin7TaxRate(value) {
+	const numeric = Number(value);
+	return Number.isFinite(numeric) ? numeric * 100 : undefined;
+}
+
+function extractRateFromLines(taxLines) {
+	if (!Array.isArray(taxLines)) return undefined;
+	for (const line of taxLines) {
+		if (line?.rate != null) {
+			const numeric = Number(line.rate);
+			if (Number.isFinite(numeric)) return numeric;
+		}
+	}
+	return undefined;
+}
+
+function taxRateFromLines(taxLines) {
+	const rate = extractRateFromLines(taxLines);
+	return rate != null ? cin7TaxRate(rate) : undefined;
+}
+
+function resolveDefaultInclusiveTaxRate(draft) {
+	if (!draft?.taxes_included) return undefined;
+	const quoteLevel = taxRateFromLines(draft.tax_lines);
+	if (quoteLevel != null) return quoteLevel;
+	for (const item of draft.line_items || []) {
+		const itemRate = taxRateFromLines(item?.tax_lines);
+		if (itemRate != null) return itemRate;
+	}
+	const freight = taxRateFromLines(draft.shipping_line?.tax_lines);
+	if (freight != null) return freight;
+	return 0;
+}
+
 function timingSafeEqual(a, b) {
 	const ab = Buffer.from(a, "utf8");
 	const bb = Buffer.from(b, "utf8");
@@ -81,6 +115,13 @@ export function mapDraftOrderToCin7Quote(draft) {
 	const cust = draft.customer || {};
 	const ship = draft.shipping_address || {};
 	const bill = draft.billing_address || {};
+	const isTaxInclusive = !!draft.taxes_included;
+	const defaultTaxRate = resolveDefaultInclusiveTaxRate(draft);
+	const freightTaxRate =
+		isTaxInclusive
+			? taxRateFromLines(draft.shipping_line?.tax_lines) ?? defaultTaxRate
+			: undefined;
+	const quoteLevelTaxRate = isTaxInclusive ? defaultTaxRate : undefined;
 
 	const quote = {
 		reference: draft.name || String(draft.id || ""),
@@ -128,21 +169,14 @@ export function mapDraftOrderToCin7Quote(draft) {
 		...(draft.shipping_line?.price != null
 			? {
 					freightTotal: Number(draft.shipping_line.price),
-					freightTaxRate:
-						draft.taxes_included &&
-						draft.shipping_line.tax_lines?.[0]?.rate != null
-							? Number(draft.shipping_line.tax_lines[0].rate) * 100
-							: undefined,
+					...(freightTaxRate != null ? { freightTaxRate } : {}),
 			  }
 			: {}),
 
 		freightDescription: draft.shipping_line.title || null,
 		deliveryInstructions: noteobjects.note || null,
 
-		taxRate:
-			draft.taxes_included && draft.tax_lines?.[0]?.rate != null
-				? Number(draft.tax_lines[0].rate) * 100
-				: undefined,
+		...(quoteLevelTaxRate != null ? { taxRate: quoteLevelTaxRate } : {}),
 
 		lineItems: (draft.line_items || []).map((li, idx) => ({
 			code: li.sku || "",
@@ -153,13 +187,21 @@ export function mapDraftOrderToCin7Quote(draft) {
 			discount: li.applied_discount?.amount
 				? Number(li.applied_discount.amount)
 				: 0,
-			taxRate:
-				draft.taxes_included && li.tax_lines?.[0]?.rate != null
-					? Number(li.tax_lines[0].rate) * 100
-					: undefined,
 			sort: idx + 1,
 		})),
 	};
+
+	if (quote.lineItems.length) {
+		quote.lineItems = quote.lineItems.map((item, idx) => {
+			const source = draft.line_items?.[idx];
+			const itemTaxRate =
+				isTaxInclusive
+					? taxRateFromLines(source?.tax_lines) ?? defaultTaxRate
+					: undefined;
+			if (itemTaxRate != null) item.taxRate = itemTaxRate;
+			return item;
+		});
+	}
 
 	Object.keys(quote).forEach((k) => {
 		if (quote[k] === undefined || quote[k] === null || quote[k] === "")
