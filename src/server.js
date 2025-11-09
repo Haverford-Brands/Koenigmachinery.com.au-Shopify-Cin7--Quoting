@@ -167,6 +167,17 @@ export function mapDraftOrderToCin7Quote(draft) {
 	const cust = draft.customer || {};
 	const ship = draft.shipping_address || {};
 	const bill = draft.billing_address || {};
+	const rawInternalComment =
+		typeof draft.note === "string"
+			? draft.note.trim()
+			: draft.note != null
+			? JSON.stringify(draft.note)
+			: "";
+	const parsedDeliveryNote =
+		typeof noteobjects.note === "string" ? noteobjects.note.trim() : "";
+	const internalCommentsValue = [rawInternalComment, parsedDeliveryNote]
+		.filter((value, index, arr) => value && arr.indexOf(value) === index)
+		.join("\n\n");
 	const sourceIsTaxInclusive = !!draft.taxes_included;
 	const isTaxInclusive =
 		sourceIsTaxInclusive && CIN7_TAX_STATUS === "Incl";
@@ -278,9 +289,8 @@ export function mapDraftOrderToCin7Quote(draft) {
 
 		...(branchIdEnv != null ? { branchId: branchIdEnv } : {}),
 
-		// Keep as string; your inbound draft.note is a string already
-		internalComments:
-			typeof draft.note === "string" ? draft.note : JSON.stringify(draft.note),
+		// Merge draft note + parsed instructions into Cin7 internal comments
+		internalComments: internalCommentsValue || undefined,
 
 		currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
 		taxStatus: CIN7_TAX_STATUS,
@@ -296,7 +306,6 @@ export function mapDraftOrderToCin7Quote(draft) {
 			: {}),
 
 		freightDescription: draft.shipping_line.title || null,
-		deliveryInstructions: noteobjects.note || null,
 
 		...(quoteLevelTaxRate != null ? { taxRate: quoteLevelTaxRate } : {}),
 

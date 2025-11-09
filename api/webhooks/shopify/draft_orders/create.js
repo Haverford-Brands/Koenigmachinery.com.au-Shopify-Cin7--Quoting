@@ -271,7 +271,6 @@ export function mapDraftOrderToCin7Quote(draft) {
                           }
                         : {}),
                 freightDescription: draft.shipping_line.title  || null,
-                deliveryInstructions: draft.note || null,
                 ...(quoteLevelTaxRate != null ? { taxRate: quoteLevelTaxRate } : {}),
                 lineItems,
 	};
