@@ -7,10 +7,12 @@ const {
         CIN7_BASE_URL,
         CIN7_USERNAME,
         CIN7_API_KEY,
-        CIN7_BRANCH_ID,
-        CIN7_DEFAULT_INCLUSIVE_TAX_RATE,
-        CIN7_DEFAULT_CURRENCY = "AUD",
+	CIN7_BRANCH_ID,
+	CIN7_DEFAULT_INCLUSIVE_TAX_RATE,
+	CIN7_DEFAULT_CURRENCY = "AUD",
 } = process.env;
+
+const CIN7_TAX_STATUS = "Excl";
 
 if (!SHOPIFY_WEBHOOK_SECRET) console.error("Missing SHOPIFY_WEBHOOK_SECRET");
 if (!CIN7_USERNAME || !CIN7_API_KEY) console.error("Missing Cin7 credentials");
@@ -36,6 +38,19 @@ function normalizeState(value) {
 function cin7TaxRate(value) {
 	const numeric = Number(value);
 	return Number.isFinite(numeric) ? numeric * 100 : undefined;
+}
+
+function toNumber(value, fallback = 0) {
+	const numeric = Number(value);
+	return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function convertInclusiveAmount(amount, taxRatePercent) {
+	const ratePercent = Number(taxRatePercent);
+	if (!Number.isFinite(ratePercent)) return toNumber(amount);
+	const rateDecimal = ratePercent / 100;
+	if (!Number.isFinite(rateDecimal) || rateDecimal <= -1) return toNumber(amount);
+	return Math.round((toNumber(amount) / (1 + rateDecimal)) * 100) / 100;
 }
 
 function normalizeTaxRateInput(rawValue) {
@@ -133,16 +148,75 @@ export function mapDraftOrderToCin7Quote(draft) {
 	const bill = draft.billing_address || {};
         const primaryEmail =
                 draft.email || cust.email || bill.email || ship.email || null;
-	const isTaxInclusive = !!draft.taxes_included;
+	const sourceIsTaxInclusive = !!draft.taxes_included;
+	const isTaxInclusive =
+		sourceIsTaxInclusive && CIN7_TAX_STATUS === "Incl";
+	const shouldConvertToExclusive =
+		sourceIsTaxInclusive && CIN7_TAX_STATUS === "Excl";
 	const {
 		rate: defaultTaxRate,
 		source: taxRateSource,
 	} = resolveDefaultInclusiveTaxRate(draft);
-	const freightTaxRate =
-		isTaxInclusive
+	const shippingTaxRate =
+		sourceIsTaxInclusive
 			? taxRateFromLines(draft.shipping_line?.tax_lines) ?? defaultTaxRate
 			: undefined;
+	const freightTaxRate = isTaxInclusive ? shippingTaxRate : undefined;
 	const quoteLevelTaxRate = isTaxInclusive ? defaultTaxRate : undefined;
+	const orderDiscountRaw =
+		draft.applied_discount?.amount != null
+			? Number(draft.applied_discount.amount)
+			: 0;
+	const discountTotal =
+		shouldConvertToExclusive &&
+		orderDiscountRaw &&
+		defaultTaxRate != null
+			? convertInclusiveAmount(orderDiscountRaw, defaultTaxRate)
+			: orderDiscountRaw;
+	const freightSourceAmount =
+		draft.shipping_line?.price != null
+			? Number(draft.shipping_line.price)
+			: undefined;
+	const freightTotal =
+		freightSourceAmount != null
+			? shouldConvertToExclusive && shippingTaxRate != null
+				? convertInclusiveAmount(freightSourceAmount, shippingTaxRate)
+				: freightSourceAmount
+			: undefined;
+	const lineItems = (draft.line_items || []).map((li, idx) => {
+		const sourceItemTaxRate =
+			sourceIsTaxInclusive
+				? taxRateFromLines(li?.tax_lines) ?? defaultTaxRate
+				: undefined;
+		const priceRaw = li.price != null ? Number(li.price) : 0;
+		const discountRaw =
+			li.applied_discount?.amount != null
+				? Number(li.applied_discount.amount)
+				: 0;
+		const unitPrice =
+			shouldConvertToExclusive && sourceItemTaxRate != null
+				? convertInclusiveAmount(priceRaw, sourceItemTaxRate)
+				: priceRaw;
+		const discount =
+			shouldConvertToExclusive &&
+			discountRaw &&
+			sourceItemTaxRate != null
+				? convertInclusiveAmount(discountRaw, sourceItemTaxRate)
+				: discountRaw;
+		const item = {
+			code: li.sku || "",
+			name: li.title || "",
+			option1: li.variant_title || "",
+			qty: Number(li.quantity || 0),
+			unitPrice,
+			discount,
+			sort: idx + 1,
+		};
+		if (isTaxInclusive && sourceItemTaxRate != null) {
+			item.taxRate = sourceItemTaxRate;
+		}
+		return item;
+	});
 	const quote = {
 		reference: draft.name || String(draft.id || ""),
 		firstName: cust.first_name || bill.first_name || ship.first_name || "",
@@ -182,17 +256,15 @@ export function mapDraftOrderToCin7Quote(draft) {
 		...(branchIdEnv != null ? { branchId: branchIdEnv } : {}),
 		internalComments: draft.note || null,
 		currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
-		taxStatus: draft.taxes_included ? "Incl" : "Excl",
-		discountTotal: draft.applied_discount?.amount
-			? Number(draft.applied_discount.amount)
-			: 0,
+		taxStatus: CIN7_TAX_STATUS,
+		discountTotal,
                 discountDescription:
                         draft.applied_discount?.title ||
                         draft.applied_discount?.description ||
                         null,
-                ...(draft.shipping_line?.price != null
+                ...(freightTotal != null
                         ? {
-                                freightTotal: Number(draft.shipping_line.price),
+                                freightTotal,
                                 ...(freightTaxRate != null
                                         ? { freightTaxRate }
                                         : {}),
@@ -201,30 +273,9 @@ export function mapDraftOrderToCin7Quote(draft) {
                 freightDescription: draft.shipping_line.title  || null,
                 deliveryInstructions: draft.note || null,
                 ...(quoteLevelTaxRate != null ? { taxRate: quoteLevelTaxRate } : {}),
-                lineItems: (draft.line_items || []).map((li, idx) => ({
-                        code: li.sku || "",
-                        name: li.title || "",
-                        option1: li.variant_title || "",
-                        qty: Number(li.quantity || 0),
-                        unitPrice: li.price != null ? Number(li.price) : 0,
-                        discount: li.applied_discount?.amount
-                                ? Number(li.applied_discount.amount)
-                                : 0,
-                        sort: idx + 1,
-                })),
+                lineItems,
 	};
-	if (quote.lineItems.length) {
-		quote.lineItems = quote.lineItems.map((item, idx) => {
-			const source = draft.line_items?.[idx];
-			const itemTaxRate =
-				isTaxInclusive
-					? taxRateFromLines(source?.tax_lines) ?? defaultTaxRate
-					: undefined;
-			if (itemTaxRate != null) item.taxRate = itemTaxRate;
-			return item;
-		});
-	}
-	if (isTaxInclusive && taxRateSource === "fallback") {
+	if (sourceIsTaxInclusive && taxRateSource === "fallback") {
 		console.warn(
 			"cin7.taxRate.fallback:",
 			JSON.stringify({
