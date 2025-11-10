@@ -173,9 +173,10 @@ export function mapDraftOrderToCin7Quote(draft) {
 			: draft.note != null
 			? JSON.stringify(draft.note)
 			: "";
-	const parsedDeliveryNote =
+	const deliveryNote =
 		typeof noteobjects.note === "string" ? noteobjects.note.trim() : "";
-	const internalCommentsValue = [rawInternalComment, parsedDeliveryNote]
+	// ensure the order note (from Shopify) appears before the API note text
+	const internalCommentsValue = [deliveryNote, rawInternalComment]
 		.filter((value, index, arr) => value && arr.indexOf(value) === index)
 		.join("\n\n");
 	const sourceIsTaxInclusive = !!draft.taxes_included;

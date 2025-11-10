@@ -142,10 +142,42 @@ function allowedShop(headers) {
 	return shop && shop.toLowerCase() === SHOPIFY_WEBHOOK_ALLOWED_SHOP.toLowerCase();
 }
 
+function parseNoteFields(noteValue) {
+	if (noteValue && typeof noteValue === "object") return { ...noteValue };
+	const raw = typeof noteValue === "string" ? noteValue.trim() : "";
+	if (!raw) return {};
+	try {
+		const o = JSON.parse(raw);
+		return o && typeof o === "object" ? o : {};
+	} catch (_) {}
+	try {
+		const o = JSON.parse(`{${raw}}`);
+		return o && typeof o === "object" ? o : {};
+	} catch (_) {}
+	const pairs = Array.from(raw.matchAll(/"([^"]+)"\s*:\s*"([^"]*)"/g));
+	if (!pairs.length) return {};
+	const out = {};
+	for (const [, k, v] of pairs) out[k] = v;
+	return out;
+}
+
 export function mapDraftOrderToCin7Quote(draft) {
+	const noteobjects = parseNoteFields(draft?.note);
 	const cust = draft.customer || {};
 	const ship = draft.shipping_address || {};
 	const bill = draft.billing_address || {};
+	const rawInternalComment =
+		typeof draft.note === "string"
+			? draft.note.trim()
+			: draft.note != null
+			? JSON.stringify(draft.note)
+			: "";
+	const deliveryNote =
+		typeof noteobjects.note === "string" ? noteobjects.note.trim() : "";
+	// ensure the order note (from Shopify) appears before the API note text
+	const internalCommentsValue = [deliveryNote, rawInternalComment]
+		.filter((value, index, arr) => value && arr.indexOf(value) === index)
+		.join("\n\n");
         const primaryEmail =
                 draft.email || cust.email || bill.email || ship.email || null;
 	const sourceIsTaxInclusive = !!draft.taxes_included;
@@ -254,7 +286,7 @@ export function mapDraftOrderToCin7Quote(draft) {
 				"",
 			billingCountry: bill.country || "",
 		...(branchIdEnv != null ? { branchId: branchIdEnv } : {}),
-		internalComments: draft.note || null,
+		internalComments: internalCommentsValue || undefined,
 		currencyCode: draft.currency || CIN7_DEFAULT_CURRENCY,
 		taxStatus: CIN7_TAX_STATUS,
 		discountTotal,
