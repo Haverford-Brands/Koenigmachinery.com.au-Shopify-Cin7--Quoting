@@ -302,7 +302,7 @@ export function mapDraftOrderToCin7Quote(draft) {
                                         : {}),
                           }
                         : {}),
-                freightDescription: draft.shipping_line.title  || null,
+                freightDescription: draft.shipping_line?.title || null,
                 ...(quoteLevelTaxRate != null ? { taxRate: quoteLevelTaxRate } : {}),
                 lineItems,
 	};
