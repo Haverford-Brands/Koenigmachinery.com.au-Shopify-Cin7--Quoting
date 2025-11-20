@@ -21,6 +21,11 @@ const CIN7_AUTH_HEADER = `Basic ${Buffer.from(
 	`${CIN7_USERNAME}:${CIN7_API_KEY}`
 ).toString("base64")}`;
 
+const CIN7_RATE_LIMITS = { perSecond: 3, perMinute: 60 };
+const cin7RecentRequests = [];
+const cin7Queue = [];
+let cin7QueueProcessing = false;
+
 const branchIdEnv = (() => {
 	const raw = typeof CIN7_BRANCH_ID === "string" ? CIN7_BRANCH_ID.trim() : "";
 	if (!raw || raw.toLowerCase() === "all") return undefined;
@@ -58,6 +63,103 @@ function normalizeTaxRateInput(rawValue) {
 	if (!Number.isFinite(numeric)) return undefined;
 	if (numeric === 0) return 0;
 	return Math.abs(numeric) > 1 ? numeric / 100 : numeric;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function pruneCin7Recent(now = Date.now()) {
+	while (cin7RecentRequests.length && now - cin7RecentRequests[0] > 60000) {
+		cin7RecentRequests.shift();
+	}
+}
+
+function cin7DelayUntilAllowed(now = Date.now()) {
+	pruneCin7Recent(now);
+	const secCutoff = now - 1000;
+	const minuteCutoff = now - 60000;
+	const secWindow = cin7RecentRequests.filter((t) => t > secCutoff);
+	const minuteWindow = cin7RecentRequests.filter((t) => t > minuteCutoff);
+
+	let delay = 0;
+	if (secWindow.length >= CIN7_RATE_LIMITS.perSecond) {
+		delay = Math.max(delay, 1000 - (now - secWindow[0]));
+	}
+	if (minuteWindow.length >= CIN7_RATE_LIMITS.perMinute) {
+		delay = Math.max(delay, 60000 - (now - minuteWindow[0]));
+	}
+	return delay;
+}
+
+async function runCin7Queue() {
+	if (cin7QueueProcessing) return;
+	cin7QueueProcessing = true;
+	while (cin7Queue.length) {
+		const now = Date.now();
+		const waitMs = cin7DelayUntilAllowed(now);
+		if (waitMs > 0) {
+			await sleep(waitMs);
+			continue;
+		}
+		const task = cin7Queue.shift();
+		cin7RecentRequests.push(Date.now());
+		try {
+			const result = await task.fn();
+			task.resolve(result);
+		} catch (err) {
+			task.reject(err);
+		}
+	}
+	cin7QueueProcessing = false;
+}
+
+function scheduleCin7Request(fn) {
+	return new Promise((resolve, reject) => {
+		cin7Queue.push({ fn, resolve, reject });
+		runCin7Queue();
+	});
+}
+
+async function cin7Request(config, context) {
+	const maxAttempts = 4;
+	let attempt = 0;
+	let lastErr;
+	while (attempt < maxAttempts) {
+		attempt += 1;
+		try {
+			return await scheduleCin7Request(() => axios(config));
+		} catch (err) {
+			lastErr = err;
+			const status = err.response?.status;
+			const retryAfterHeader =
+				err.response?.headers?.["retry-after"] ||
+				err.response?.headers?.["Retry-After"];
+			const retryAfterSeconds = Number(retryAfterHeader);
+			const retryAfterMs = Number.isFinite(retryAfterSeconds)
+				? retryAfterSeconds * 1000
+				: null;
+			const backoff =
+				retryAfterMs ??
+				Math.min(5000, 500 * attempt + Math.floor(Math.random() * 250));
+			if (status === 429 || status >= 500) {
+				if (attempt < maxAttempts) {
+					console.warn(
+						"cin7.retrying.error:",
+						JSON.stringify({
+							tag: "cin7.retrying",
+							context,
+							attempt,
+							status,
+							backoff,
+						})
+					);
+					await sleep(backoff);
+					continue;
+				}
+			}
+			break;
+		}
+	}
+	throw lastErr;
 }
 
 const fallbackInclusiveTaxRateInfo = (() => {
@@ -430,15 +532,20 @@ export default async function handler(req, res) {
 		}
 
 		try {
-			const r = await axios.get(`${CIN7_BASE_URL}/v1/Contacts`, {
-				params: {
-                                        fields: "id,email",
-                                        where: `email='${quote.memberEmail}'`,
-					rows: 1,
+			const r = await cin7Request(
+				{
+					method: "get",
+					url: `${CIN7_BASE_URL}/v1/Contacts`,
+					params: {
+						fields: "id,email",
+						where: `email='${quote.memberEmail}'`,
+						rows: 1,
+					},
+					headers: { Authorization: CIN7_AUTH_HEADER },
+					timeout: 8000,
 				},
-				headers: { Authorization: CIN7_AUTH_HEADER },
-				timeout: 8000,
-			});
+				{ action: "contact-lookup", reqId, reference: quote.reference }
+			);
 			const contact = Array.isArray(r.data) ? r.data[0] : null;
 			if (contact?.id) quote.memberId = contact.id;
 		} catch (e) {
@@ -476,16 +583,18 @@ export default async function handler(req, res) {
                         })
                 );
 
-                const cin7Res = await axios.post(
-                        `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`,
-                        [quote],
+                const cin7Res = await cin7Request(
                         {
+                                method: "post",
+                                url: `${CIN7_BASE_URL}/v1/Quotes?loadboms=false`,
+                                data: [quote],
                                 headers: {
                                         Authorization: CIN7_AUTH_HEADER,
                                         "Content-Type": "application/json",
                                 },
                                 timeout: 10000,
-                        }
+                        },
+                        { action: "create-quote", reqId, reference: quote.reference }
                 );
                 console.log(
                         "cin7.quote.response:",
