@@ -560,33 +560,46 @@ app.post("/webhooks/shopify/draft_orders/create", rawJson, async (req, res) => {
 			return res.status(200).send("ok");
 		}
 
-		// Try to resolve memberId by email
-		try {
-			const r = await cin7Request(
-				{
-					method: "get",
-					url: `${CIN7_BASE_URL}/v1/Contacts`,
-					params: {
-						fields: "id,email",
-						where: `email='${quote.memberEmail}'`,
-						rows: 1,
+		const hasDraftContactDetails =
+			quote.firstName ||
+			quote.lastName ||
+			quote.deliveryAddress1 ||
+			quote.deliveryCity ||
+			quote.billingAddress1 ||
+			quote.billingCity ||
+			quote.phone ||
+			quote.company;
+
+		// Only attach Cin7 memberId when we need Cin7 to supply contact details;
+		// otherwise Cin7 will override draft-supplied names/addresses.
+		if (!hasDraftContactDetails) {
+			try {
+				const r = await cin7Request(
+					{
+						method: "get",
+						url: `${CIN7_BASE_URL}/v1/Contacts`,
+						params: {
+							fields: "id,email",
+							where: `email='${quote.memberEmail}'`,
+							rows: 1,
+						},
+						headers: { Authorization: CIN7_AUTH_HEADER },
+						timeout: 8000,
 					},
-					headers: { Authorization: CIN7_AUTH_HEADER },
-					timeout: 8000,
-				},
-				{ action: "contact-lookup", reference: quote.reference }
-			);
-			const contact = Array.isArray(r.data) ? r.data[0] : null;
-			if (contact?.id) quote.memberId = contact.id;
-		} catch (e) {
-			console.warn(
-				"cin7.contact.lookup.failed:",
-				JSON.stringify({
-					tag: "cin7.contact.lookup.failed",
-					status: e.response?.status,
-					message: e.message,
-				})
-			);
+					{ action: "contact-lookup", reference: quote.reference }
+				);
+				const contact = Array.isArray(r.data) ? r.data[0] : null;
+				if (contact?.id) quote.memberId = contact.id;
+			} catch (e) {
+				console.warn(
+					"cin7.contact.lookup.failed:",
+					JSON.stringify({
+						tag: "cin7.contact.lookup.failed",
+						status: e.response?.status,
+						message: e.message,
+					})
+				);
+			}
 		}
 
 		console.log(

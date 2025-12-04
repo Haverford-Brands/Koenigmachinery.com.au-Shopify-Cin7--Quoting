@@ -13,7 +13,7 @@ const {
 } = process.env;
 
 const CIN7_TAX_STATUS = "Excl";
-const REQUIRED_DRAFT_TAG = "qteedy";
+const REQUIRED_DRAFT_TAGS = ["qteedy", "quote"];
 
 if (!SHOPIFY_WEBHOOK_SECRET) console.error("Missing SHOPIFY_WEBHOOK_SECRET");
 if (!CIN7_USERNAME || !CIN7_API_KEY) console.error("Missing Cin7 credentials");
@@ -273,10 +273,13 @@ function parseTags(value) {
 		.filter(Boolean);
 }
 
-function draftHasTag(draft, tag) {
-	const target = typeof tag === "string" ? tag.trim().toLowerCase() : "";
-	if (!target) return true;
-	return parseTags(draft?.tags).some((t) => t.toLowerCase() === target);
+function draftHasRequiredTag(draft, tags) {
+	const required = (Array.isArray(tags) ? tags : [tags])
+		.map((t) => (typeof t === "string" ? t.trim().toLowerCase() : ""))
+		.filter(Boolean);
+	if (!required.length) return true;
+	const draftTags = parseTags(draft?.tags).map((t) => t.toLowerCase());
+	return required.some((t) => draftTags.includes(t));
 }
 
 export function mapDraftOrderToCin7Quote(draft) {
@@ -532,13 +535,13 @@ export default async function handler(req, res) {
         );
 
 	try {
-		if (!draftHasTag(draft, REQUIRED_DRAFT_TAG)) {
+		if (!draftHasRequiredTag(draft, REQUIRED_DRAFT_TAGS)) {
 			console.warn(
 				"shopify.draft.skip.missingTag:",
 				JSON.stringify({
 					tag: "shopify.draft.skip.missingTag",
 					reqId,
-					requiredTag: REQUIRED_DRAFT_TAG,
+					requiredTags: REQUIRED_DRAFT_TAGS,
 					reference: draft.name || draft.id || "",
 					tags: draft.tags,
 				})
@@ -561,33 +564,47 @@ export default async function handler(req, res) {
 			return res.status(200).send("ok");
 		}
 
-		try {
-			const r = await cin7Request(
-				{
-					method: "get",
-					url: `${CIN7_BASE_URL}/v1/Contacts`,
-					params: {
-						fields: "id,email",
-						where: `email='${quote.memberEmail}'`,
-						rows: 1,
+		const hasDraftContactDetails =
+			quote.firstName ||
+			quote.lastName ||
+			quote.deliveryAddress1 ||
+			quote.deliveryCity ||
+			quote.billingAddress1 ||
+			quote.billingCity ||
+			quote.phone ||
+			quote.company;
+
+		// Avoid sending memberId when we already have draft contact details;
+		// Cin7 will otherwise override the draft names/addresses with the profile.
+		if (!hasDraftContactDetails) {
+			try {
+				const r = await cin7Request(
+					{
+						method: "get",
+						url: `${CIN7_BASE_URL}/v1/Contacts`,
+						params: {
+							fields: "id,email",
+							where: `email='${quote.memberEmail}'`,
+							rows: 1,
+						},
+						headers: { Authorization: CIN7_AUTH_HEADER },
+						timeout: 8000,
 					},
-					headers: { Authorization: CIN7_AUTH_HEADER },
-					timeout: 8000,
-				},
-				{ action: "contact-lookup", reqId, reference: quote.reference }
-			);
-			const contact = Array.isArray(r.data) ? r.data[0] : null;
-			if (contact?.id) quote.memberId = contact.id;
-		} catch (e) {
-                        console.warn(
-                                "cin7.contact.lookup.failed:",
-                                JSON.stringify({
-                                        tag: "cin7.contact.lookup.failed",
-                                        reqId,
-                                        status: e.response?.status,
-                                        message: e.message,
-                                })
-                        );
+					{ action: "contact-lookup", reqId, reference: quote.reference }
+				);
+				const contact = Array.isArray(r.data) ? r.data[0] : null;
+				if (contact?.id) quote.memberId = contact.id;
+			} catch (e) {
+				console.warn(
+					"cin7.contact.lookup.failed:",
+					JSON.stringify({
+						tag: "cin7.contact.lookup.failed",
+						reqId,
+						status: e.response?.status,
+						message: e.message,
+					})
+				);
+			}
 		}
 
                 console.log(
